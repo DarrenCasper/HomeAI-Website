@@ -1,4 +1,10 @@
-const BASE = "/api"
+// In local dev VITE_API_URL is unset, so this stays a relative "/api" and
+// goes through the Vite dev server's proxy (vite.config.js). In production
+// there is no proxy in front of the static build (nginx.conf just serves the
+// SPA), so VITE_API_URL must point at the backend's own origin, e.g.
+// https://api-homeai.darrencasper.com - set as a build arg in the Dockerfile.
+const API_ORIGIN = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "")
+const BASE = `${API_ORIGIN}/api`
 
 async function handleResponse(res) {
   if (!res.ok) {
