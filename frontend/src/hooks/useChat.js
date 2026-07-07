@@ -166,7 +166,7 @@ export function useChat(conversationId, projectId) {
       }
 
       try {
-        const response = await postChat({ message: trimmed, model, conversationId })
+        const response = await postChat({ message: trimmed, model, conversationId, projectId })
         const contentType = response.headers.get("content-type") || ""
 
         if (contentType.includes("application/json")) {

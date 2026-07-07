@@ -17,6 +17,7 @@ async function handleResponse(res) {
     }
     throw new Error(message)
   }
+  if (res.status === 204) return null
   return res.json()
 }
 
@@ -74,7 +75,9 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
   })
 }
 
-// POST /api/chat { message, model, conversationId? } -> raw Response.
+// POST /api/chat { message, model, conversationId?, projectId? } -> raw Response.
+// projectId only matters when starting a brand-new conversation (no
+// conversationId) - it tags that conversation into the project.
 // The backend picks one of two response shapes depending on the model (see
 // backend src/utils/modelMode.js):
 //  - stream mode: 200, Content-Type text/plain, body is raw text chunks, and
@@ -82,7 +85,7 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
 //  - job mode: 200 JSON { mode: "job", jobId, status, statusUrl, conversationId }
 // Callers must branch on response.headers.get("content-type") themselves -
 // this stays unparsed so streaming callers can read response.body directly.
-export function postChat({ message, model, conversationId }) {
+export function postChat({ message, model, conversationId, projectId }) {
   return fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -91,6 +94,7 @@ export function postChat({ message, model, conversationId }) {
       message,
       model,
       ...(conversationId ? { conversationId } : {}),
+      ...(projectId ? { projectId } : {}),
     }),
   })
 }
@@ -116,6 +120,20 @@ export function createProject(name) {
     method: "POST",
     body: JSON.stringify({ name }),
   })
+}
+
+// PATCH /api/projects/:id { name } -> { id, name }
+export function renameProject(id, name) {
+  return request(`/projects/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  })
+}
+
+// DELETE /api/projects/:id -> 204. Conversations that were in the project
+// aren't deleted, just un-tagged (they stay in history, ungrouped).
+export function deleteProject(id) {
+  return request(`/projects/${id}`, { method: "DELETE" })
 }
 
 // GET /api/auth/me -> { user: { id, name, email } } (401 when not logged in)

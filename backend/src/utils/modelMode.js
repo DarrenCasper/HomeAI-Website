@@ -1,9 +1,13 @@
+function normalizeModel(model) {
+  return typeof model === 'string' ? model.toLowerCase() : '';
+}
+
 // qwen models answer fast enough to stream straight through. deepseek/deepsek
 // (reasoning) models can run well past Cloudflare's ~100s proxy timeout, so
 // those go through the background job + polling path instead. Anything
 // unrecognized defaults to streaming since it's the simpler/cheaper path.
 function getModelMode(model) {
-  const name = typeof model === 'string' ? model.toLowerCase() : '';
+  const name = normalizeModel(model);
 
   if (name.includes('qwen')) return 'stream';
   if (name.includes('deepseek') || name.includes('deepsek')) return 'job';
@@ -11,4 +15,20 @@ function getModelMode(model) {
   return 'stream';
 }
 
-module.exports = { getModelMode };
+// How long Ollama keeps a model resident in memory after a response (its
+// `keep_alive` param - see lib/ollama.js). qwen is the everyday/fast model,
+// worth keeping warm; deepseek/deepsek is a large reasoning model used less
+// often, so it's evicted sooner to free RAM for everything else. Overridable
+// per env in case the homelab's memory budget needs different numbers.
+function getKeepAlive(model) {
+  const name = normalizeModel(model);
+
+  if (name.includes('qwen')) return process.env.OLLAMA_KEEP_ALIVE_QWEN || '30m';
+  if (name.includes('deepseek') || name.includes('deepsek')) {
+    return process.env.OLLAMA_KEEP_ALIVE_DEEPSEEK || '5m';
+  }
+
+  return process.env.OLLAMA_KEEP_ALIVE_DEFAULT || '5m';
+}
+
+module.exports = { getModelMode, getKeepAlive };

@@ -1,3 +1,5 @@
+const { getKeepAlive } = require('../utils/modelMode');
+
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
 // Calls Ollama's /api/chat with streaming disabled so we get one JSON object
@@ -8,7 +10,7 @@ async function ollamaChat(model, messages) {
     response = await fetch(`${OLLAMA_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: false })
+      body: JSON.stringify({ model, messages, stream: false, keep_alive: getKeepAlive(model) })
     });
   } catch (err) {
     throw new Error(`Could not reach Ollama at ${OLLAMA_URL}: ${err.message}`);
@@ -38,7 +40,7 @@ async function ollamaChatStream(model, messages, onChunk) {
     response = await fetch(`${OLLAMA_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: true })
+      body: JSON.stringify({ model, messages, stream: true, keep_alive: getKeepAlive(model) })
     });
   } catch (err) {
     throw new Error(`Could not reach Ollama at ${OLLAMA_URL}: ${err.message}`);

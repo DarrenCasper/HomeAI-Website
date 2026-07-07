@@ -1,6 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
-import { getProjects, createProject as createProjectRequest } from "@/lib/api"
+import {
+  getProjects,
+  createProject as createProjectRequest,
+  renameProject as renameProjectRequest,
+  deleteProject as deleteProjectRequest,
+} from "@/lib/api"
 import { toast } from "@/hooks/use-toast"
 
 const ProjectsContext = createContext(null)
@@ -34,8 +39,21 @@ export function ProjectsProvider({ children }) {
     return project
   }, [])
 
+  const renameProject = useCallback(async (id, name) => {
+    const updated = await renameProjectRequest(id, name)
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, name: updated.name } : p)))
+    return updated
+  }, [])
+
+  const deleteProject = useCallback(async (id) => {
+    await deleteProjectRequest(id)
+    setProjects((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
   return (
-    <ProjectsContext.Provider value={{ projects, loading, refresh, createProject }}>
+    <ProjectsContext.Provider
+      value={{ projects, loading, refresh, createProject, renameProject, deleteProject }}
+    >
       {children}
     </ProjectsContext.Provider>
   )

@@ -10,6 +10,7 @@ const messageSchema = new Schema({
 
 const conversationSchema = new Schema({
   userId: { type: String, required: true, index: true }, // matches postgres users.id
+  projectId: { type: Schema.Types.ObjectId, ref: 'Project', default: null, index: true },
   title: String,
   messages: [messageSchema],
   createdAt: { type: Date, default: Date.now },

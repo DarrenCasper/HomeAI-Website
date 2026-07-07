@@ -7,6 +7,7 @@ import { useProjects } from "@/context/ProjectsContext"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NewProjectDialog } from "@/components/layout/NewProjectDialog"
+import { ProjectMenu } from "@/components/layout/ProjectMenu"
 import { UserMenu } from "@/components/layout/UserMenu"
 
 const navLinkClasses = ({ isActive }) =>
@@ -65,15 +66,17 @@ export function SidebarContent({ onNavigate }) {
 
           {!projectsLoading &&
             projects.map((project) => (
-              <NavLink
-                key={project.id}
-                to={`/p/${project.id}`}
-                onClick={onNavigate}
-                className={navLinkClasses}
-              >
-                <Folder className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                <span className="truncate">{project.name}</span>
-              </NavLink>
+              <div key={project.id} className="group flex items-center">
+                <NavLink
+                  to={`/p/${project.id}`}
+                  onClick={onNavigate}
+                  className={(state) => cn(navLinkClasses(state), "min-w-0 flex-1")}
+                >
+                  <Folder className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                  <span className="truncate">{project.name}</span>
+                </NavLink>
+                <ProjectMenu project={project} onNavigate={onNavigate} />
+              </div>
             ))}
         </div>
       </div>

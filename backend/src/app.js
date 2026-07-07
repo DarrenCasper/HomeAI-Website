@@ -6,6 +6,7 @@ const authRouter = require('./routes/auth');
 const whoamiRouter = require('./routes/whoami');
 const historyRouter = require('./routes/history');
 const chatRouter = require('./routes/chat');
+const projectsRouter = require('./routes/projects');
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use(auth);
 app.use('/api/whoami', whoamiRouter);
 app.use('/api/history', historyRouter);
 app.use('/api/chat', chatRouter);
+app.use('/api/projects', projectsRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
