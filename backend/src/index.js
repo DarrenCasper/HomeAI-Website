@@ -5,7 +5,7 @@ const { connectMongo } = require('./db/mongo');
 const { pingPostgres } = require('./db/postgres');
 
 const PORT = Number(process.env.PORT) || 3000;
-const HOST = '127.0.0.1'; // only reachable via `tailscale serve`
+const HOST = process.env.HOST || '127.0.0.1'; // only reachable via `tailscale serve`
 
 async function start() {
   // Mongo connects/reconnects in the background; don't block startup on it.
