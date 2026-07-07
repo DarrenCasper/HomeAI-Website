@@ -32,9 +32,13 @@ export function getConversation(id) {
   return request(`/history/${id}`)
 }
 
-// POST /api/chat { message, model, conversationId?, projectId?, attachments? }
-// -> { conversationId, message: { role: "assistant", content, model } }
-// When attachments are present, sent as multipart/form-data instead of JSON.
+// Legacy single-shot call, kept only for the attachments path below - the
+// Homelab AI backend's /api/chat now always responds with either a stream or
+// a job descriptor (see postChat above), never this shape, and it doesn't
+// parse multipart bodies either. Sending attachments will fail against the
+// real backend today; this exists so that failure surfaces as a normal toast
+// instead of silently dropping files, and so it's a one-line change to wire
+// up once the backend grows multipart support.
 export function sendMessage({ message, model, conversationId, projectId, attachments }) {
   if (attachments && attachments.length > 0) {
     const form = new FormData()
@@ -56,6 +60,31 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
       ...(projectId ? { projectId } : {}),
     }),
   })
+}
+
+// POST /api/chat { message, model, conversationId? } -> raw Response.
+// The backend picks one of two response shapes depending on the model (see
+// backend src/utils/modelMode.js):
+//  - stream mode: 200, Content-Type text/plain, body is raw text chunks, and
+//    an X-Conversation-Id header carries the (possibly brand-new) conversation id.
+//  - job mode: 200 JSON { mode: "job", jobId, status, statusUrl, conversationId }
+// Callers must branch on response.headers.get("content-type") themselves -
+// this stays unparsed so streaming callers can read response.body directly.
+export function postChat({ message, model, conversationId }) {
+  return fetch(`${BASE}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      model,
+      ...(conversationId ? { conversationId } : {}),
+    }),
+  })
+}
+
+// GET /api/chat/jobs/:jobId -> { jobId, status, model, partial? | answer? | error? }
+export function getChatJob(jobId) {
+  return request(`/chat/jobs/${jobId}`)
 }
 
 // GET /api/projects -> [{ id, name, updatedAt }], most recent first

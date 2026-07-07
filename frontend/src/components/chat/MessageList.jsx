@@ -44,13 +44,19 @@ export function MessageList({ messages, loading, pending, model }) {
     )
   }
 
+  // Once the assistant's message has been appended to the list (first
+  // stream chunk / first non-empty job partial), that bubble itself carries
+  // the "in progress" feel - showing the indicator too would be redundant.
+  const lastMessage = messages[messages.length - 1]
+  const isThinking = pending && lastMessage?.role !== "assistant"
+
   return (
     <ScrollArea className="flex-1">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
         {messages.map((message, i) => (
           <MessageBubble key={i} message={message} />
         ))}
-        {pending && <ThinkingIndicator model={model} />}
+        {isThinking && <ThinkingIndicator model={model} />}
         <div ref={bottomRef} />
       </div>
     </ScrollArea>
