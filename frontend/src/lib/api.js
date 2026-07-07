@@ -23,6 +23,10 @@ async function handleResponse(res) {
 async function request(path, options) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
+    // Required for the session cookie (backend src/lib/session.js) to be
+    // sent/accepted cross-origin against api-homeai.darrencasper.com - the
+    // default fetch credentials mode ("same-origin") would silently drop it.
+    credentials: "include",
     ...options,
   })
   return handleResponse(res)
@@ -54,7 +58,9 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
     if (projectId) form.append("projectId", projectId)
     for (const file of attachments) form.append("attachments", file)
 
-    return fetch(`${BASE}/chat`, { method: "POST", body: form }).then(handleResponse)
+    return fetch(`${BASE}/chat`, { method: "POST", body: form, credentials: "include" }).then(
+      handleResponse
+    )
   }
 
   return request("/chat", {
@@ -80,6 +86,7 @@ export function postChat({ message, model, conversationId }) {
   return fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify({
       message,
       model,
