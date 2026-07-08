@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+browser-use
+langchain-ollama
+requests
+trafilatura
+beautifulsoup4
+lxml
