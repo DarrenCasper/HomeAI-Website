@@ -43,6 +43,11 @@ export function getConversation(id) {
   return request(`/history/${id}`)
 }
 
+// DELETE /api/history/:id -> 204
+export function deleteConversation(id) {
+  return request(`/history/${id}`, { method: "DELETE" })
+}
+
 // Legacy single-shot call, kept only for the attachments path below - the
 // Homelab AI backend's /api/chat now always responds with either a stream or
 // a job descriptor (see postChat above), never this shape, and it doesn't
@@ -96,6 +101,18 @@ export function postChat({ message, model, conversationId, projectId }) {
       ...(conversationId ? { conversationId } : {}),
       ...(projectId ? { projectId } : {}),
     }),
+  })
+}
+
+// POST /api/vision { image: <base64 jpeg, no data: prefix>, conversationId, question? }
+// -> { description: string }
+// NOTE: this endpoint doesn't exist on the backend yet (no vision-capable
+// model wired up) - ScreenShareButton.jsx will surface that as a normal
+// "Screen capture failed" toast until it's added server-side.
+export function sendScreenCapture({ image, conversationId, question }) {
+  return request("/vision", {
+    method: "POST",
+    body: JSON.stringify({ image, conversationId, question }),
   })
 }
 

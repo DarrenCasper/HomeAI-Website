@@ -7,6 +7,7 @@ const whoamiRouter = require('./routes/whoami');
 const historyRouter = require('./routes/history');
 const chatRouter = require('./routes/chat');
 const projectsRouter = require('./routes/projects');
+const visionRouter = require('./routes/vision');
 
 const app = express();
 
@@ -39,7 +40,7 @@ app.use(
 );
 
 app.use(cookieParser());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '10mb' })); // was '1mb' - screen captures need headroom
 
 // Liveness check ahead of auth so it works even without a Tailscale identity.
 app.get('/healthz', (req, res) => res.json({ ok: true }));
@@ -54,6 +55,7 @@ app.use('/api/whoami', whoamiRouter);
 app.use('/api/history', historyRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/projects', projectsRouter);
+app.use('/api/vision', visionRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

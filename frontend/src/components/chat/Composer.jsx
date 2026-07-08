@@ -3,13 +3,18 @@ import { ArrowUp, Globe, X } from "lucide-react"
 
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ModelSelector } from "@/components/chat/ModelSelector"
 import { AttachMenu } from "@/components/chat/AttachMenu"
+import { ScreenShareButton } from "@/components/chat/ScreenShareButton"
 
-export function Composer({ model, onModelChange, onSend, disabled }) {
+export function Composer({ model, onModelChange, onSend, disabled, conversationId, onScreenCaptured }) {
   const [value, setValue] = useState("")
   const [files, setFiles] = useState([])
+  // Hint only, no request-shape change: the backend doesn't take a flag for
+  // this today, so toggling it doesn't change what gets sent - it's here so
+  // the control isn't a dead "Coming soon" tooltip, and to leave a clean
+  // wiring point for whenever /api/chat grows a real tool-calling loop.
+  const [browsingEnabled, setBrowsingEnabled] = useState(false)
   const textareaRef = useRef(null)
 
   const resizeTextarea = (el) => {
@@ -38,6 +43,10 @@ export function Composer({ model, onModelChange, onSend, disabled }) {
 
   const removeFile = (index) => {
     setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleScreenCaptured = (description) => {
+    onScreenCaptured?.(`[Screen share] ${description}`)
   }
 
   return (
@@ -84,24 +93,22 @@ export function Composer({ model, onModelChange, onSend, disabled }) {
         <div className="flex items-center justify-between gap-2 pl-10">
           <div className="flex items-center gap-1">
             <ModelSelector value={model} onChange={onModelChange} />
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled
-                      className="gap-1.5 px-2 text-muted-foreground"
-                    >
-                      <Globe className="size-3.5" />
-                      Web search
-                    </Button>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Coming soon</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <Button
+              type="button"
+              variant={browsingEnabled ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setBrowsingEnabled((v) => !v)}
+              className="gap-1.5 px-2 text-muted-foreground data-[active=true]:text-foreground"
+              data-active={browsingEnabled}
+            >
+              <Globe className="size-3.5" />
+              Browse web
+            </Button>
+            <ScreenShareButton
+              conversationId={conversationId}
+              disabled={!conversationId}
+              onCaptured={handleScreenCaptured}
+            />
           </div>
 
           <Button

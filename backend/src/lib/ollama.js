@@ -2,15 +2,38 @@ const { getKeepAlive } = require('../utils/modelMode');
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
+// Tool schema for the browsing agent, handed to Ollama on the non-streaming
+// "decide" call in routes/chat.js so tool-capable models can request a live
+// web lookup instead of answering from training data alone.
+const BROWSE_TOOL_SCHEMA = [
+  {
+    type: 'function',
+    function: {
+      name: 'browse_web',
+      description:
+        'Browse the live web to answer questions about current events, prices, or anything not in your training data. Use only when the question genuinely requires up-to-date or external information.',
+      parameters: {
+        type: 'object',
+        properties: {
+          task: { type: 'string', description: 'A clear, specific instruction describing what to find or do on the web.' }
+        },
+        required: ['task']
+      }
+    }
+  }
+];
+
 // Calls Ollama's /api/chat with streaming disabled so we get one JSON object
-// back instead of newline-delimited chunks.
-async function ollamaChat(model, messages) {
+// back instead of newline-delimited chunks. Returns the full message object
+// (not just its content) so callers can inspect `tool_calls` when `tools` is
+// passed - see routes/chat.js's tool-resolution step.
+async function ollamaChat(model, messages, tools) {
   let response;
   try {
     response = await fetch(`${OLLAMA_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: false, keep_alive: getKeepAlive(model) })
+      body: JSON.stringify({ model, messages, tools, stream: false, keep_alive: getKeepAlive(model) })
     });
   } catch (err) {
     throw new Error(`Could not reach Ollama at ${OLLAMA_URL}: ${err.message}`);
@@ -22,11 +45,11 @@ async function ollamaChat(model, messages) {
   }
 
   const data = await response.json();
-  if (!data || !data.message || typeof data.message.content !== 'string') {
+  if (!data || typeof data.message !== 'object' || data.message === null) {
     throw new Error('Unexpected response shape from Ollama');
   }
 
-  return data.message.content;
+  return data.message;
 }
 
 // Calls Ollama's /api/chat with streaming enabled. Ollama sends one
@@ -88,4 +111,37 @@ async function ollamaChatStream(model, messages, onChunk) {
   return full;
 }
 
-module.exports = { ollamaChat, ollamaChatStream };
+// Single-shot vision call: one user turn carrying both the prompt and a
+// base64-encoded image, no history - the caller (routes/vision.js) is
+// describing a screenshot, not continuing a multi-turn exchange with images.
+async function ollamaVisionChat(model, prompt, base64Image) {
+  let response;
+  try {
+    response = await fetch(`${OLLAMA_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt, images: [base64Image] }],
+        stream: false,
+        keep_alive: getKeepAlive(model)
+      })
+    });
+  } catch (err) {
+    throw new Error(`Could not reach Ollama at ${OLLAMA_URL}: ${err.message}`);
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Ollama vision request failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json();
+  if (!data || !data.message || typeof data.message.content !== 'string') {
+    throw new Error('Unexpected response shape from Ollama');
+  }
+
+  return data.message.content;
+}
+
+module.exports = { ollamaChat, ollamaChatStream, ollamaVisionChat, BROWSE_TOOL_SCHEMA };

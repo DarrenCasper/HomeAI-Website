@@ -31,4 +31,11 @@ function getKeepAlive(model) {
   return process.env.OLLAMA_KEEP_ALIVE_DEFAULT || '5m';
 }
 
-module.exports = { getModelMode, getKeepAlive };
+// Only qwen is wired up for tool-calling right now - deepseek-r1's
+// tool-calling support is inconsistent, so it stays stream/job-only.
+function supportsTools(model) {
+  const name = normalizeModel(model);
+  return name.includes('qwen');
+}
+
+module.exports = { getModelMode, getKeepAlive, supportsTools };

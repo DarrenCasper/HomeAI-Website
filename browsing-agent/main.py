@@ -9,7 +9,7 @@ import trafilatura
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from browser_use import Agent
+from browser_use import Agent, BrowserProfile
 from langchain_ollama import ChatOllama
 
 app = FastAPI()
@@ -43,6 +43,20 @@ def _is_private_host(url: str) -> bool:
         return addr.is_private or addr.is_loopback or addr.is_link_local
     except Exception:
         return True  # can't resolve it -> don't blindly allow it through
+
+
+# block_ip_addresses blocks navigation to any literal-IP URL (covers RFC1918,
+# loopback, and 169.254.0.0/16 in one native browser_use flag); prohibited_domains
+# additionally covers internal hostnames that aren't raw IPs, including
+# Tailscale's own MagicDNS suffix - a prompt-injected page could otherwise
+# redirect the agent straight at this homelab over the tailnet.
+def _build_browser_profile() -> BrowserProfile:
+    if ALLOW_PRIVATE_NET:
+        return BrowserProfile()
+    return BrowserProfile(
+        block_ip_addresses=True,
+        prohibited_domains=["localhost", "*.local", "*.internal", "*.lan", "*.ts.net"],
+    )
 
 
 def _beautifulsoup_fallback(url: str) -> str:
@@ -85,6 +99,7 @@ async def browse(req: BrowseRequest):
             agent = Agent(
                 task=req.task,
                 llm=ChatOllama(model=BROWSER_AGENT_MODEL, num_ctx=8000),
+                browser_profile=_build_browser_profile(),
             )
             result = await asyncio.wait_for(
                 agent.run(max_steps=req.max_steps), timeout=BROWSER_AGENT_TIMEOUT_S

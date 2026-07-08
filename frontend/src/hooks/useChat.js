@@ -121,6 +121,15 @@ export function useChat(conversationId, projectId) {
     })
   }, [])
 
+  // Inserts a message straight into the visible transcript without going
+  // through send()/the backend - used for the screen-share capture flow,
+  // where the description already came back from a separate /api/vision
+  // call and just needs to show up immediately instead of waiting on the
+  // next full conversation refetch.
+  const addUserNote = useCallback((content) => {
+    setMessages((prev) => [...prev, { role: "user", content }])
+  }, [])
+
   const handleNewConversationId = useCallback(
     (newId, title) => {
       if (!newId || conversationId) return
@@ -240,5 +249,5 @@ export function useChat(conversationId, projectId) {
     ]
   )
 
-  return { messages, loading, pending, model, setModel, send }
+  return { messages, loading, pending, model, setModel, send, addUserNote }
 }

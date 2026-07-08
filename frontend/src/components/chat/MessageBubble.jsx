@@ -1,7 +1,9 @@
-import { Paperclip } from "lucide-react"
+import { Monitor, Paperclip } from "lucide-react"
 
 import { FormattedContent } from "@/components/chat/FormattedContent"
 import { ModelAvatar, ModelTag } from "@/components/chat/ModelBadge"
+
+const SCREEN_SHARE_PREFIX = "[Screen share] "
 
 function AttachmentChips({ attachments }) {
   if (!attachments || attachments.length === 0) return null
@@ -24,12 +26,23 @@ export function MessageBubble({ message }) {
   const isUser = message.role === "user"
 
   if (isUser) {
+    const isScreenShare = message.content?.startsWith(SCREEN_SHARE_PREFIX)
+    const displayContent = isScreenShare
+      ? message.content.slice(SCREEN_SHARE_PREFIX.length)
+      : message.content
+
     return (
       <div className="flex animate-in fade-in-0 slide-in-from-bottom-1 flex-col items-end px-1 duration-300">
         <AttachmentChips attachments={message.attachments} />
-        {message.content && (
+        {displayContent && (
           <div className="max-w-[80%] rounded-2xl bg-card px-4 py-2.5 text-sm text-foreground">
-            <FormattedContent content={message.content} />
+            {isScreenShare && (
+              <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Monitor className="size-3.5" />
+                Screen share
+              </div>
+            )}
+            <FormattedContent content={displayContent} />
           </div>
         )}
       </div>

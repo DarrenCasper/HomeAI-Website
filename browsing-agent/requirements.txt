@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 browser-use
+playwright
 langchain-ollama
 requests
 trafilatura

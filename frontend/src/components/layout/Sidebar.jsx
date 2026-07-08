@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NewProjectDialog } from "@/components/layout/NewProjectDialog"
 import { ProjectMenu } from "@/components/layout/ProjectMenu"
+import { ConversationMenu } from "@/components/layout/ConversationMenu"
 import { UserMenu } from "@/components/layout/UserMenu"
 
 const navLinkClasses = ({ isActive }) =>
@@ -100,15 +101,17 @@ export function SidebarContent({ onNavigate }) {
 
             {!conversationsLoading &&
               conversations.map((conversation) => (
-                <NavLink
-                  key={conversation.id}
-                  to={`/c/${conversation.id}`}
-                  onClick={onNavigate}
-                  className={navLinkClasses}
-                >
-                  <MessageSquare className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                  <span className="truncate">{conversation.title || "Untitled chat"}</span>
-                </NavLink>
+                <div key={conversation.id} className="group flex items-center">
+                  <NavLink
+                    to={`/c/${conversation.id}`}
+                    onClick={onNavigate}
+                    className={(state) => cn(navLinkClasses(state), "min-w-0 flex-1")}
+                  >
+                    <MessageSquare className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                    <span className="truncate">{conversation.title || "Untitled chat"}</span>
+                  </NavLink>
+                  <ConversationMenu conversation={conversation} onNavigate={onNavigate} />
+                </div>
               ))}
           </div>
         </ScrollArea>

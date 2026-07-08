@@ -31,6 +31,13 @@ export function ProjectMenu({ project, onNavigate }) {
   const [name, setName] = useState(project.name)
   const [submitting, setSubmitting] = useState(false)
 
+  // Opening a Dialog directly from a DropdownMenuItem's onSelect races with
+  // Radix's own focus-return-on-close handling and can eat the Dialog's open
+  // state (it flashes or never appears) - deferring to the next tick avoids it.
+  const openAfterMenuCloses = (fn) => {
+    setTimeout(fn, 0)
+  }
+
   const handleRename = async () => {
     const trimmed = name.trim()
     if (!trimmed || submitting) return
@@ -69,7 +76,7 @@ export function ProjectMenu({ project, onNavigate }) {
           <button
             type="button"
             onClick={(e) => e.stopPropagation()}
-            className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+            className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <MoreHorizontal className="size-3.5" />
             <span className="sr-only">Project options</span>
@@ -78,17 +85,19 @@ export function ProjectMenu({ project, onNavigate }) {
         <DropdownMenuContent align="end" className="w-36">
           <DropdownMenuItem
             className="gap-2"
-            onSelect={() => {
-              setName(project.name)
-              setRenameOpen(true)
-            }}
+            onSelect={() =>
+              openAfterMenuCloses(() => {
+                setName(project.name)
+                setRenameOpen(true)
+              })
+            }
           >
             <Pencil className="size-3.5 text-muted-foreground" />
             Rename
           </DropdownMenuItem>
           <DropdownMenuItem
             className="gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={() => setDeleteOpen(true)}
+            onSelect={() => openAfterMenuCloses(() => setDeleteOpen(true))}
           >
             <Trash2 className="size-3.5" />
             Delete

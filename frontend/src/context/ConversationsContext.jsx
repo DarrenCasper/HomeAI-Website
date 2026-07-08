@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 
-import { getHistory } from "@/lib/api"
+import { getHistory, deleteConversation as deleteConversationRequest } from "@/lib/api"
 import { toast } from "@/hooks/use-toast"
 
 const ConversationsContext = createContext(null)
@@ -34,8 +34,15 @@ export function ConversationsProvider({ children }) {
     setConversations((prev) => [conversation, ...prev.filter((c) => c.id !== conversation.id)])
   }, [])
 
+  const deleteConversation = useCallback(async (id) => {
+    await deleteConversationRequest(id)
+    setConversations((prev) => prev.filter((c) => c.id !== id))
+  }, [])
+
   return (
-    <ConversationsContext.Provider value={{ conversations, loading, refresh, upsertConversation }}>
+    <ConversationsContext.Provider
+      value={{ conversations, loading, refresh, upsertConversation, deleteConversation }}
+    >
       {children}
     </ConversationsContext.Provider>
   )
