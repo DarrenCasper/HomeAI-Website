@@ -96,9 +96,22 @@ async def fetch_page(req: FetchRequest):
 async def browse(req: BrowseRequest):
     async with _browse_semaphore:
         try:
+            llm = ChatOllama(model=BROWSER_AGENT_MODEL, num_ctx=8000)
+            # Recent browser-use versions check `llm.provider` internally
+            # (browser_use/agent/service.py:237) purely to special-case their
+            # own hosted LLM wrapper ("flash_mode" for ChatBrowserUse); plain
+            # LangChain models like ChatOllama never had that attribute, so
+            # this crashes before the agent runs a single step - see
+            # browser-use/browser-use#3534 for the same failure against a
+            # different LangChain model. Any value other than "browser-use"
+            # is safe (it's otherwise only read for telemetry). ChatOllama is
+            # a Pydantic model that rejects setting undeclared fields
+            # normally, so this bypasses that via object.__setattr__ rather
+            # than switching to browser-use's own (cloud-routed) LLM class.
+            object.__setattr__(llm, "provider", "langchain_ollama")
             agent = Agent(
                 task=req.task,
-                llm=ChatOllama(model=BROWSER_AGENT_MODEL, num_ctx=8000),
+                llm=llm,
                 browser_profile=_build_browser_profile(),
             )
             result = await asyncio.wait_for(
