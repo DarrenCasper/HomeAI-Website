@@ -130,6 +130,13 @@ async def browse(req: BrowseRequest):
                 llm=llm,
                 browser_profile=_build_browser_profile(),
                 llm_timeout=BROWSER_AGENT_LLM_TIMEOUT_S,
+                # browser-use defaults to use_vision=True, sending a screenshot
+                # with every step. BROWSER_AGENT_MODEL is a text-only model
+                # (not the vl/vision variant) - it can't use the image, so
+                # that's pure wasted encode+context overhead on every single
+                # call, on a CPU that's already the bottleneck. Text-only DOM
+                # analysis is well-supported by browser-use without vision.
+                use_vision=False,
             )
             result = await asyncio.wait_for(
                 agent.run(max_steps=req.max_steps), timeout=BROWSER_AGENT_TIMEOUT_S
