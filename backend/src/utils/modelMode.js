@@ -38,4 +38,13 @@ function supportsTools(model) {
   return name.includes('qwen');
 }
 
-module.exports = { getModelMode, getKeepAlive, supportsTools };
+// deepseek-r1 is the reasoning model in this app - Ollama's `think` param
+// (see lib/ollama.js) surfaces its chain-of-thought as a separate stream
+// from the final answer so the frontend can show it in a collapsible
+// section. qwen isn't treated as a thinking model here.
+function supportsThinking(model) {
+  const name = normalizeModel(model);
+  return name.includes('deepseek') || name.includes('deepsek');
+}
+
+module.exports = { getModelMode, getKeepAlive, supportsTools, supportsThinking };

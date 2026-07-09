@@ -1,4 +1,4 @@
-const { getKeepAlive } = require('../utils/modelMode');
+const { getKeepAlive, supportsThinking } = require('../utils/modelMode');
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
 
@@ -55,15 +55,27 @@ async function ollamaChat(model, messages, tools) {
 // Calls Ollama's /api/chat with streaming enabled. Ollama sends one
 // newline-delimited JSON object per token/chunk (`{message:{content:"..."}}`),
 // terminated by a final object with `done: true`. onChunk is called with each
-// content delta as it arrives; the full accumulated text is returned once the
-// stream ends.
-async function ollamaChatStream(model, messages, onChunk) {
+// content delta as it arrives. When the model supports it (see
+// utils/modelMode.js) and a caller passes onThinking, Ollama's `think: true`
+// param splits its reasoning trace into a separate `message.thinking` field -
+// Ollama streams thinking chunks first, then shifts to content chunks once
+// reasoning concludes (never both populated in the same chunk). Returns
+// { content, thinking } with the full accumulated text of each.
+async function ollamaChatStream(model, messages, onChunk, onThinking) {
+  const think = supportsThinking(model) && typeof onThinking === 'function';
+
   let response;
   try {
     response = await fetch(`${OLLAMA_URL}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, stream: true, keep_alive: getKeepAlive(model) })
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        keep_alive: getKeepAlive(model),
+        ...(think ? { think: true } : {})
+      })
     });
   } catch (err) {
     throw new Error(`Could not reach Ollama at ${OLLAMA_URL}: ${err.message}`);
@@ -75,6 +87,7 @@ async function ollamaChatStream(model, messages, onChunk) {
   }
 
   let full = '';
+  let thinking = '';
   let buffer = '';
   // response.body yields raw Uint8Arrays (not Node Buffers), and a multi-byte
   // UTF-8 character can land split across two chunks - a stateful decoder
@@ -97,18 +110,26 @@ async function ollamaChatStream(model, messages, onChunk) {
         continue; // skip a malformed line rather than aborting the whole stream
       }
 
-      if (parsed.message && typeof parsed.message.content === 'string' && parsed.message.content) {
-        full += parsed.message.content;
-        onChunk(parsed.message.content);
+      if (parsed.message) {
+        if (typeof parsed.message.thinking === 'string' && parsed.message.thinking) {
+          thinking += parsed.message.thinking;
+          // Guard even though `think` gates the request: defensive against a
+          // server sending a thinking field back regardless of what was asked.
+          onThinking?.(parsed.message.thinking);
+        }
+        if (typeof parsed.message.content === 'string' && parsed.message.content) {
+          full += parsed.message.content;
+          onChunk(parsed.message.content);
+        }
       }
 
       if (parsed.done) {
-        return full;
+        return { content: full, thinking };
       }
     }
   }
 
-  return full;
+  return { content: full, thinking };
 }
 
 // Single-shot vision call: one user turn carrying both the prompt and a

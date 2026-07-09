@@ -1,6 +1,7 @@
 import { Monitor, Paperclip } from "lucide-react"
 
 import { FormattedContent } from "@/components/chat/FormattedContent"
+import { ReasoningTrace } from "@/components/chat/ReasoningTrace"
 import { ModelAvatar, ModelTag } from "@/components/chat/ModelBadge"
 
 const SCREEN_SHARE_PREFIX = "[Screen share] "
@@ -54,6 +55,9 @@ export function MessageBubble({ message }) {
       <ModelAvatar />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-1">
         <ModelTag model={message.model} />
+        {message.thinking && (
+          <ReasoningTrace thinking={message.thinking} hasAnswer={Boolean(message.content)} />
+        )}
         <div className="max-w-full text-sm text-foreground">
           <FormattedContent content={message.content} />
         </div>

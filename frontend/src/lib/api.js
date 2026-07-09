@@ -129,7 +129,9 @@ export async function sendScreenCapture({ image, conversationId, question }) {
   throw new Error("Vision job timed out waiting for a result")
 }
 
-// GET /api/chat/jobs/:jobId -> { jobId, status, model, partial? | answer? | error? }
+// GET /api/chat/jobs/:jobId -> { jobId, status, model, thinking, partial? | answer? | error? }
+// thinking is always present (may be "") - deepseek-r1's reasoning trace,
+// streamed in before partial/answer since Ollama sends thinking tokens first.
 export function getChatJob(jobId) {
   return request(`/chat/jobs/${jobId}`)
 }

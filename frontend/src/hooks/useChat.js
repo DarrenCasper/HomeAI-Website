@@ -95,16 +95,19 @@ export function useChat(conversationId, projectId) {
   }, [])
 
   // Job polling delivers a full snapshot each tick rather than a delta.
-  const setAssistantContent = useCallback((content, msgModel) => {
+  // Ollama streams a reasoning model's thinking tokens before any content
+  // (see backend lib/ollama.js), so this has to create the placeholder
+  // message on thinking alone too, not just once content shows up.
+  const setAssistantContent = useCallback((content, msgModel, thinking) => {
     setMessages((prev) => {
       const last = prev[prev.length - 1]
       if (last?.role === "assistant" && last.__streaming) {
         const updated = [...prev]
-        updated[updated.length - 1] = { ...last, content, model: msgModel }
+        updated[updated.length - 1] = { ...last, content, thinking, model: msgModel }
         return updated
       }
-      if (!content) return prev
-      return [...prev, { role: "assistant", content, model: msgModel, __streaming: true }]
+      if (!content && !thinking) return prev
+      return [...prev, { role: "assistant", content, thinking, model: msgModel, __streaming: true }]
     })
   }, [])
 
@@ -204,11 +207,11 @@ export function useChat(conversationId, projectId) {
               break
             }
             if (job.status === "done") {
-              setAssistantContent(job.answer, model)
+              setAssistantContent(job.answer, model, job.thinking || "")
               finalizeAssistantMessage()
               break
             }
-            setAssistantContent(job.partial || "", model)
+            setAssistantContent(job.partial || "", model, job.thinking || "")
           }
         } else {
           handleNewConversationId(response.headers.get("x-conversation-id"), trimmed.slice(0, 60))
