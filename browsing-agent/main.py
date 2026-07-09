@@ -20,6 +20,14 @@ app = FastAPI()
 
 BROWSER_AGENT_MODEL = os.environ.get("BROWSER_AGENT_MODEL", "qwen2.5:7b")
 BROWSER_AGENT_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_TIMEOUT_S", "90"))
+# Per-LLM-call timeout inside browser-use's own step loop (Agent's llm_timeout
+# param - separate from BROWSER_AGENT_TIMEOUT_S, which caps the whole task).
+# browser-use auto-detects a default per model family (60s generic, seen as
+# 75s in practice here) that's too tight for a small model on CPU-only
+# hardware - a single call timing out can burn most of the overall budget
+# before a single step completes. Bump both together: a step that's allowed
+# to take longer per call needs proportionally more total budget too.
+BROWSER_AGENT_LLM_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_LLM_TIMEOUT_S", "120"))
 ALLOW_PRIVATE_NET = os.environ.get("BROWSER_AGENT_ALLOW_PRIVATE_NET", "false").lower() == "true"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MAX_CHARS = 8000
@@ -121,6 +129,7 @@ async def browse(req: BrowseRequest):
                 task=req.task,
                 llm=llm,
                 browser_profile=_build_browser_profile(),
+                llm_timeout=BROWSER_AGENT_LLM_TIMEOUT_S,
             )
             result = await asyncio.wait_for(
                 agent.run(max_steps=req.max_steps), timeout=BROWSER_AGENT_TIMEOUT_S
