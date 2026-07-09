@@ -19,15 +19,18 @@ logger = logging.getLogger("browsing-agent")
 app = FastAPI()
 
 BROWSER_AGENT_MODEL = os.environ.get("BROWSER_AGENT_MODEL", "qwen2.5:7b")
-BROWSER_AGENT_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_TIMEOUT_S", "90"))
-# Per-LLM-call timeout inside browser-use's own step loop (Agent's llm_timeout
-# param - separate from BROWSER_AGENT_TIMEOUT_S, which caps the whole task).
-# browser-use auto-detects a default per model family (60s generic, seen as
-# 75s in practice here) that's too tight for a small model on CPU-only
-# hardware - a single call timing out can burn most of the overall budget
-# before a single step completes. Bump both together: a step that's allowed
-# to take longer per call needs proportionally more total budget too.
+# Three separate, nested timeouts in browser-use/this service - each one
+# needs headroom over the one it wraps, or the outer one becomes unreachable
+# and silently overrides whatever the inner one was set to:
+#   llm_timeout   < step_timeout       < BROWSER_AGENT_TIMEOUT_S
+#   (one LLM call)  (LLM call + browser  (whole task: N steps, each
+#                    action execution)    possibly retried up to 6x)
+# step_timeout defaults to 180 inside browser-use itself and was never
+# overridden here originally - on slow CPU-only hardware it fired before
+# llm_timeout ever got a chance to matter.
 BROWSER_AGENT_LLM_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_LLM_TIMEOUT_S", "120"))
+BROWSER_AGENT_STEP_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_STEP_TIMEOUT_S", "180"))
+BROWSER_AGENT_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_TIMEOUT_S", "600"))
 ALLOW_PRIVATE_NET = os.environ.get("BROWSER_AGENT_ALLOW_PRIVATE_NET", "false").lower() == "true"
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MAX_CHARS = 8000
@@ -130,6 +133,7 @@ async def browse(req: BrowseRequest):
                 llm=llm,
                 browser_profile=_build_browser_profile(),
                 llm_timeout=BROWSER_AGENT_LLM_TIMEOUT_S,
+                step_timeout=BROWSER_AGENT_STEP_TIMEOUT_S,
                 # browser-use defaults to use_vision=True, sending a screenshot
                 # with every step. BROWSER_AGENT_MODEL is a text-only model
                 # (not the vl/vision variant) - it can't use the image, so
