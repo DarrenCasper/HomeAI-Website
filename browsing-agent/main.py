@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import logging
 import os
 import socket
 from urllib.parse import urlparse
@@ -11,6 +12,9 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from browser_use import Agent, BrowserProfile
 from browser_use.llm import ChatOllama
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("browsing-agent")
 
 app = FastAPI()
 
@@ -124,5 +128,9 @@ async def browse(req: BrowseRequest):
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="browse_web task timed out")
         except Exception as err:
+            # str(err) alone doesn't say *where* it happened - full traceback
+            # to the container logs (Coolify's Logs tab) without changing the
+            # client-facing response, so a repeat failure is actually debuggable.
+            logger.exception("/browse failed")
             raise HTTPException(status_code=500, detail=str(err))
     return {"result": str(result)}
