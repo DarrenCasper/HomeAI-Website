@@ -75,8 +75,11 @@ const BROWSE_TOOL_SCHEMA = [
 // Calls Ollama's /api/chat with streaming disabled so we get one JSON object
 // back instead of newline-delimited chunks. Returns the full message object
 // (not just its content) so callers can inspect `tool_calls` when `tools` is
-// passed - see routes/chat.js's tool-resolution step.
-async function ollamaChat(model, messages, tools) {
+// passed - see routes/chat.js's tool-resolution step. `think` should be true
+// for thinking models (see modelMode.supportsThinking) so Ollama splits any
+// reasoning trace into `message.thinking` instead of leaving raw <think>
+// tags inline in `message.content`.
+async function ollamaChat(model, messages, tools, think) {
   const { url, model: resolvedModel } = await resolveOllamaTarget(model);
 
   let response;
@@ -89,7 +92,8 @@ async function ollamaChat(model, messages, tools) {
         messages,
         tools,
         stream: false,
-        keep_alive: getKeepAlive(resolvedModel)
+        keep_alive: getKeepAlive(resolvedModel),
+        ...(think ? { think: true } : {})
       })
     });
   } catch (err) {

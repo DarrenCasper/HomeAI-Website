@@ -31,11 +31,13 @@ function getKeepAlive(model) {
   return process.env.OLLAMA_KEEP_ALIVE_DEFAULT || '5m';
 }
 
-// Only qwen is wired up for tool-calling right now - deepseek-r1's
-// tool-calling support is inconsistent, so it stays stream/job-only.
+// Both model families are tagged "tools"-capable on Ollama's model library.
+// deepseek-r1 goes through job mode (see getModelMode), so its tool
+// resolution happens inline in runJob() instead of the heartbeat-wrapped
+// path handleStreamMode uses for qwen - see routes/chat.js.
 function supportsTools(model) {
   const name = normalizeModel(model);
-  return name.includes('qwen');
+  return name.includes('qwen') || name.includes('deepseek') || name.includes('deepsek');
 }
 
 // deepseek-r1 is the reasoning model in this app - Ollama's `think` param
