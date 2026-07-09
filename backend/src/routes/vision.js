@@ -2,8 +2,11 @@ const router = require('express').Router();
 const mongoose = require('mongoose');
 const Conversation = require('../models/Conversation');
 const VisionJob = require('../models/VisionJob');
+const { openaiVisionChat } = require('../lib/openaiVision');
 const { ollamaVisionChat } = require('../lib/ollama');
 
+// Local Ollama model, used only as a fallback if OpenAI is unreachable or
+// OPENAI_API_KEY isn't set - see runVisionJob below.
 const VISION_MODEL = process.env.VISION_MODEL || 'qwen2.5vl:7b';
 
 const DEFAULT_PROMPT =
@@ -74,18 +77,26 @@ async function runVisionJob(jobId, conversationId, prompt, image) {
 
   let description;
   try {
-    description = await ollamaVisionChat(VISION_MODEL, prompt, image);
+    description = await openaiVisionChat(prompt, image);
   } catch (err) {
-    console.error('[vision] ollama vision call failed:', err.message);
+    // Degrades to the local model rather than failing outright - same
+    // "don't hard-fail on an external dependency" pattern as the browse_web
+    // tool call in chat.js falling back when the browsing agent is down.
+    console.error('[vision] openai vision call failed, falling back to local model:', err.message);
     try {
-      await VisionJob.updateOne(
-        { _id: jobId },
-        { $set: { status: 'error', error: err.message, updatedAt: new Date() } }
-      );
-    } catch (saveErr) {
-      console.error('[vision] job error update failed:', saveErr.message);
+      description = await ollamaVisionChat(VISION_MODEL, prompt, image);
+    } catch (fallbackErr) {
+      console.error('[vision] ollama vision call failed:', fallbackErr.message);
+      try {
+        await VisionJob.updateOne(
+          { _id: jobId },
+          { $set: { status: 'error', error: fallbackErr.message, updatedAt: new Date() } }
+        );
+      } catch (saveErr) {
+        console.error('[vision] job error update failed:', saveErr.message);
+      }
+      return;
     }
-    return;
   }
 
   try {

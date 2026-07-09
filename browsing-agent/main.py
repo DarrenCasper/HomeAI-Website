@@ -11,44 +11,57 @@ from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from browser_use import Agent, BrowserProfile
-from browser_use.llm import ChatOllama
+from browser_use.llm import ChatOpenAI
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("browsing-agent")
 
 app = FastAPI()
 
-BROWSER_AGENT_MODEL = os.environ.get("BROWSER_AGENT_MODEL", "qwen2.5:7b")
+BROWSER_AGENT_MODEL = os.environ.get("BROWSER_AGENT_MODEL", "gpt-4.1-mini")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+BROWSER_AGENT_MAX_TOKENS = int(os.environ.get("BROWSER_AGENT_MAX_TOKENS", "2048"))
+
+# Fail loudly at startup (uvicorn won't even come up) rather than on the
+# first /browse call - a missing key should never surface as a confusing
+# downstream ChatOpenAI/httpx error.
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY is required")
+
 # Three separate, nested timeouts in browser-use/this service - each one
 # needs headroom over the one it wraps, or the outer one becomes unreachable
 # and silently overrides whatever the inner one was set to:
 #   llm_timeout   < step_timeout       < BROWSER_AGENT_TIMEOUT_S
 #   (one LLM call)  (LLM call + browser  (whole task: N steps, each
 #                    action execution)    possibly retried up to 6x)
-# step_timeout defaults to 180 inside browser-use itself and was never
-# overridden here originally - on slow CPU-only hardware it fired before
-# llm_timeout ever got a chance to matter.
+# step_timeout defaults to 180 inside browser-use itself. Kept generous even
+# on OpenAI (fast + reliable) since a slow or rate-limited response is still
+# possible and shouldn't be able to hang a request indefinitely.
 BROWSER_AGENT_LLM_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_LLM_TIMEOUT_S", "120"))
 BROWSER_AGENT_STEP_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_STEP_TIMEOUT_S", "180"))
 BROWSER_AGENT_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_TIMEOUT_S", "600"))
 ALLOW_PRIVATE_NET = os.environ.get("BROWSER_AGENT_ALLOW_PRIVATE_NET", "false").lower() == "true"
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MAX_CHARS = 8000
 
 # Only one real Chromium instance at a time -- too much for a dual-core CPU
 # box to run more than one /browse task concurrently.
 _browse_semaphore = asyncio.Semaphore(1)
 
-# Two earlier fixes here (an object.__setattr__ patch, then a subclass
-# declaring .provider/.model_name) both worked at Agent-construction time but
-# broke again mid-run with the exact same error, on an object literally named
-# 'ChatOllama' rather than our subclass - something inside browser-use's
-# LangChain-compat path reconstructs a fresh plain ChatOllama internally
-# (bind_tools or similar hardcodes the class rather than using type(self)),
-# discarding whatever subclass was passed in. browser_use.llm.ChatOllama is
-# browser-use's own native Ollama integration (uses the plain `ollama` client
-# directly, no LangChain at all) - it's the class their Agent actually
-# expects, so none of these gaps exist in the first place.
+# Uses OpenAI directly rather than a local Ollama model - browser-use's
+# tool-calling/structured-action loop is most thoroughly tested against
+# OpenAI models, and gpt-4.1-mini is cheap enough to run per-task while being
+# both faster and more reliable than local CPU-bound inference was. The main
+# chat model (qwen3.5 / deepseek-r1) is unaffected and stays fully local;
+# only this browsing sub-agent's own LLM call goes external.
+#
+# Uses browser_use.llm.ChatOpenAI (their own native OpenAI wrapper), NOT
+# langchain_openai's - browser-use's Agent reads llm.provider/.model_name
+# internally (browser_use/agent/service.py:237) and reconstructs a fresh
+# plain LangChain object mid-run in at least one internal code path,
+# discarding any subclass. This is the exact same failure mode the earlier
+# local-Ollama setup hit (twice) with langchain_ollama.ChatOllama - browser-
+# use's own native wrapper classes are the only ones guaranteed not to have
+# this gap, for any provider, not just Ollama.
 
 
 class FetchRequest(BaseModel):
@@ -123,10 +136,13 @@ async def fetch_page(req: FetchRequest):
 async def browse(req: BrowseRequest):
     async with _browse_semaphore:
         try:
-            llm = ChatOllama(
+            llm = ChatOpenAI(
                 model=BROWSER_AGENT_MODEL,
-                host=OLLAMA_URL,
-                ollama_options={"num_ctx": 8000},
+                api_key=OPENAI_API_KEY,
+                # browser_use.llm.ChatOpenAI's param is max_completion_tokens,
+                # not max_tokens (OpenAI's newer chat-completions naming) -
+                # langchain_openai used the old name, this class doesn't.
+                max_completion_tokens=BROWSER_AGENT_MAX_TOKENS,
             )
             agent = Agent(
                 task=req.task,
@@ -134,13 +150,6 @@ async def browse(req: BrowseRequest):
                 browser_profile=_build_browser_profile(),
                 llm_timeout=BROWSER_AGENT_LLM_TIMEOUT_S,
                 step_timeout=BROWSER_AGENT_STEP_TIMEOUT_S,
-                # browser-use defaults to use_vision=True, sending a screenshot
-                # with every step. BROWSER_AGENT_MODEL is a text-only model
-                # (not the vl/vision variant) - it can't use the image, so
-                # that's pure wasted encode+context overhead on every single
-                # call, on a CPU that's already the bottleneck. Text-only DOM
-                # analysis is well-supported by browser-use without vision.
-                use_vision=False,
             )
             result = await asyncio.wait_for(
                 agent.run(max_steps=req.max_steps), timeout=BROWSER_AGENT_TIMEOUT_S
