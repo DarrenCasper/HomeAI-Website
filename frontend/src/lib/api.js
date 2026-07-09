@@ -104,16 +104,29 @@ export function postChat({ message, model, conversationId, projectId }) {
   })
 }
 
+const VISION_POLL_INTERVAL_MS = 1500
+const VISION_MAX_POLLS = 60 // ~90s ceiling - matches roughly what the vision model should need on this hardware
+
 // POST /api/vision { image: <base64 jpeg, no data: prefix>, conversationId, question? }
-// -> { description: string }
-// NOTE: this endpoint doesn't exist on the backend yet (no vision-capable
-// model wired up) - ScreenShareButton.jsx will surface that as a normal
-// "Screen capture failed" toast until it's added server-side.
-export function sendScreenCapture({ image, conversationId, question }) {
-  return request("/vision", {
+// -> { jobId, statusUrl }
+// GET /api/vision/jobs/:jobId -> { status, description?, error? }
+// Vision inference is slow enough that the backend runs it as a background
+// job rather than holding the request open - this submits and polls until
+// the job resolves, keeping the external contract (an awaited promise
+// resolving to { description }) the same for callers like ScreenShareButton.jsx.
+export async function sendScreenCapture({ image, conversationId, question }) {
+  const { jobId } = await request("/vision", {
     method: "POST",
     body: JSON.stringify({ image, conversationId, question }),
   })
+
+  for (let i = 0; i < VISION_MAX_POLLS; i++) {
+    await new Promise((resolve) => setTimeout(resolve, VISION_POLL_INTERVAL_MS))
+    const job = await request(`/vision/jobs/${jobId}`)
+    if (job.status === "done") return { description: job.description }
+    if (job.status === "error") throw new Error(job.error || "Vision job failed")
+  }
+  throw new Error("Vision job timed out waiting for a result")
 }
 
 // GET /api/chat/jobs/:jobId -> { jobId, status, model, partial? | answer? | error? }

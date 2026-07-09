@@ -8,6 +8,12 @@ import { toast } from "@/hooks/use-toast"
 
 const JOB_POLL_INTERVAL_MS = 2500
 
+// Must match backend/src/routes/chat.js's HEARTBEAT_SENTINEL - the backend
+// interleaves this into the stream during slow tool calls to keep
+// Cloudflare's proxy from timing out the connection; it carries no visible
+// content and must be stripped before the chunk is appended to the message.
+const HEARTBEAT_SENTINEL = '\u0000'
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -217,7 +223,10 @@ export function useChat(conversationId, projectId) {
               reader.cancel()
               return
             }
-            appendAssistantDelta(decoder.decode(value, { stream: true }), model)
+            const filtered = decoder.decode(value, { stream: true }).split(HEARTBEAT_SENTINEL).join("")
+            if (filtered) {
+              appendAssistantDelta(filtered, model)
+            }
           }
 
           finalizeAssistantMessage()

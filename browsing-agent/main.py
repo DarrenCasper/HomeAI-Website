@@ -8,7 +8,7 @@ import requests
 import trafilatura
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from browser_use import Agent, BrowserProfile
 from langchain_ollama import ChatOllama
 
@@ -17,11 +17,28 @@ app = FastAPI()
 BROWSER_AGENT_MODEL = os.environ.get("BROWSER_AGENT_MODEL", "qwen2.5:7b")
 BROWSER_AGENT_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_TIMEOUT_S", "90"))
 ALLOW_PRIVATE_NET = os.environ.get("BROWSER_AGENT_ALLOW_PRIVATE_NET", "false").lower() == "true"
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 MAX_CHARS = 8000
 
 # Only one real Chromium instance at a time -- too much for a dual-core CPU
 # box to run more than one /browse task concurrently.
 _browse_semaphore = asyncio.Semaphore(1)
+
+
+# browser-use's Agent reads both `llm.provider` and `llm.model_name` off
+# whatever LLM object it's given, matching the shape of its own/langchain-
+# openai-style wrappers. Plain langchain_ollama.ChatOllama exposes neither
+# (only `.model`) - see browser-use/browser-use#3752 for the same failure.
+# A subclass with these declared is the permanent fix, replacing the earlier
+# object.__setattr__ patch which only covered `.provider` and broke again
+# the moment browser-use also started reading `.model_name`.
+class OllamaLLM(ChatOllama):
+    provider: str = Field(default="langchain_ollama")
+    model_config = {"extra": "allow"}
+
+    @property
+    def model_name(self):
+        return self.model
 
 
 class FetchRequest(BaseModel):
@@ -96,19 +113,8 @@ async def fetch_page(req: FetchRequest):
 async def browse(req: BrowseRequest):
     async with _browse_semaphore:
         try:
-            llm = ChatOllama(model=BROWSER_AGENT_MODEL, num_ctx=8000)
-            # Recent browser-use versions check `llm.provider` internally
-            # (browser_use/agent/service.py:237) purely to special-case their
-            # own hosted LLM wrapper ("flash_mode" for ChatBrowserUse); plain
-            # LangChain models like ChatOllama never had that attribute, so
-            # this crashes before the agent runs a single step - see
-            # browser-use/browser-use#3534 for the same failure against a
-            # different LangChain model. Any value other than "browser-use"
-            # is safe (it's otherwise only read for telemetry). ChatOllama is
-            # a Pydantic model that rejects setting undeclared fields
-            # normally, so this bypasses that via object.__setattr__ rather
-            # than switching to browser-use's own (cloud-routed) LLM class.
-            object.__setattr__(llm, "provider", "langchain_ollama")
+            # See OllamaLLM above for why this can't be plain ChatOllama.
+            llm = OllamaLLM(model=BROWSER_AGENT_MODEL, base_url=OLLAMA_URL, num_ctx=8000)
             agent = Agent(
                 task=req.task,
                 llm=llm,

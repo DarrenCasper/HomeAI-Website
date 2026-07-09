@@ -11,8 +11,10 @@ import { toast } from "@/hooks/use-toast"
 export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
   const [sharing, setSharing] = useState(false)
   const [capturing, setCapturing] = useState(false)
+  const [stillAnalyzing, setStillAnalyzing] = useState(false)
   const streamRef = useRef(null)
   const videoRef = useRef(null)
+  const stillAnalyzingTimeoutRef = useRef(null)
 
   const stopShare = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -48,6 +50,10 @@ export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
     if (!videoRef.current || !conversationId) return
 
     setCapturing(true)
+    // sendScreenCapture now polls a vision job in the background instead of
+    // a single request, so a capture can take a while - flip the label after
+    // 5s so a slow response doesn't read as stuck.
+    stillAnalyzingTimeoutRef.current = setTimeout(() => setStillAnalyzing(true), 5000)
     try {
       const canvas = document.createElement("canvas")
       canvas.width = videoRef.current.videoWidth
@@ -61,6 +67,8 @@ export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
     } catch (err) {
       toast({ variant: "destructive", title: "Screen capture failed", description: err.message })
     } finally {
+      clearTimeout(stillAnalyzingTimeoutRef.current)
+      setStillAnalyzing(false)
       setCapturing(false)
     }
   }
@@ -92,7 +100,7 @@ export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
             className="gap-1.5 px-2"
           >
             <MonitorUp className="size-3.5" />
-            {capturing ? "Capturing…" : "Capture & ask"}
+            {capturing ? (stillAnalyzing ? "Still analyzing…" : "Capturing…") : "Capture & ask"}
           </Button>
           <Button
             type="button"
