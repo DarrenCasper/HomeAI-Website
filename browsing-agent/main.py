@@ -8,9 +8,9 @@ import requests
 import trafilatura
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from browser_use import Agent, BrowserProfile
-from langchain_ollama import ChatOllama
+from browser_use.llm import ChatOllama
 
 app = FastAPI()
 
@@ -24,21 +24,16 @@ MAX_CHARS = 8000
 # box to run more than one /browse task concurrently.
 _browse_semaphore = asyncio.Semaphore(1)
 
-
-# browser-use's Agent reads both `llm.provider` and `llm.model_name` off
-# whatever LLM object it's given, matching the shape of its own/langchain-
-# openai-style wrappers. Plain langchain_ollama.ChatOllama exposes neither
-# (only `.model`) - see browser-use/browser-use#3752 for the same failure.
-# A subclass with these declared is the permanent fix, replacing the earlier
-# object.__setattr__ patch which only covered `.provider` and broke again
-# the moment browser-use also started reading `.model_name`.
-class OllamaLLM(ChatOllama):
-    provider: str = Field(default="langchain_ollama")
-    model_config = {"extra": "allow"}
-
-    @property
-    def model_name(self):
-        return self.model
+# Two earlier fixes here (an object.__setattr__ patch, then a subclass
+# declaring .provider/.model_name) both worked at Agent-construction time but
+# broke again mid-run with the exact same error, on an object literally named
+# 'ChatOllama' rather than our subclass - something inside browser-use's
+# LangChain-compat path reconstructs a fresh plain ChatOllama internally
+# (bind_tools or similar hardcodes the class rather than using type(self)),
+# discarding whatever subclass was passed in. browser_use.llm.ChatOllama is
+# browser-use's own native Ollama integration (uses the plain `ollama` client
+# directly, no LangChain at all) - it's the class their Agent actually
+# expects, so none of these gaps exist in the first place.
 
 
 class FetchRequest(BaseModel):
@@ -113,8 +108,11 @@ async def fetch_page(req: FetchRequest):
 async def browse(req: BrowseRequest):
     async with _browse_semaphore:
         try:
-            # See OllamaLLM above for why this can't be plain ChatOllama.
-            llm = OllamaLLM(model=BROWSER_AGENT_MODEL, base_url=OLLAMA_URL, num_ctx=8000)
+            llm = ChatOllama(
+                model=BROWSER_AGENT_MODEL,
+                host=OLLAMA_URL,
+                ollama_options={"num_ctx": 8000},
+            )
             agent = Agent(
                 task=req.task,
                 llm=llm,
