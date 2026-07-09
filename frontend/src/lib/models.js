@@ -1,11 +1,11 @@
 export const MODELS = [
   {
-    value: "qwen3.5:9b",
+    value: "qwen3.5:4b",
     label: "Qwen3.5",
     description: "Fast & general",
   },
   {
-    value: "deepseek-r1:14b",
+    value: "deepseek-r1:7b",
     label: "DeepSeek R1",
     description: "Deep reasoning",
   },
