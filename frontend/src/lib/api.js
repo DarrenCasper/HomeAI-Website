@@ -130,8 +130,9 @@ export async function sendScreenCapture({ image, conversationId, question }) {
 }
 
 // GET /api/chat/jobs/:jobId -> { jobId, status, model, thinking, partial? | answer? | error? }
-// thinking is always present (may be "") - deepseek-r1's reasoning trace,
-// streamed in before partial/answer since Ollama sends thinking tokens first.
+// thinking is always present (may be "") - a thinking-capable model's
+// reasoning trace, streamed in before partial/answer since Ollama sends
+// thinking tokens first. No selectable model currently populates it.
 export function getChatJob(jobId) {
   return request(`/chat/jobs/${jobId}`)
 }

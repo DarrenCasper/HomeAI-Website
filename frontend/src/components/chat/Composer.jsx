@@ -1,5 +1,5 @@
 import { useRef, useState } from "react"
-import { ArrowUp, Globe, X } from "lucide-react"
+import { ArrowUp, Globe, MonitorUp, X } from "lucide-react"
 
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { ModelSelector } from "@/components/chat/ModelSelector"
 import { AttachMenu } from "@/components/chat/AttachMenu"
 import { ScreenShareButton } from "@/components/chat/ScreenShareButton"
 
-export function Composer({ model, onModelChange, onSend, disabled, conversationId, onScreenCaptured }) {
+export function Composer({ model, onModelChange, onSend, disabled, conversationId, screenReading }) {
   const [value, setValue] = useState("")
   const [files, setFiles] = useState([])
   // Hint only, no request-shape change: the backend doesn't take a flag for
@@ -16,6 +16,7 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
   // wiring point for whenever /api/chat grows a real tool-calling loop.
   const [browsingEnabled, setBrowsingEnabled] = useState(false)
   const textareaRef = useRef(null)
+  const screenShareRef = useRef(null)
 
   const resizeTextarea = (el) => {
     el.style.height = "auto"
@@ -24,7 +25,10 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
 
   const handleSubmit = () => {
     if ((!value.trim() && files.length === 0) || disabled) return
-    onSend(value, files)
+    // null whenever screen-share isn't active - onSend/useChat treats that
+    // exactly like sending without a frame at all.
+    const frame = screenShareRef.current?.captureFrame() ?? null
+    onSend(value, files, frame)
     setValue("")
     setFiles([])
     if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -45,13 +49,16 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
     setFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const handleScreenCaptured = (description) => {
-    onScreenCaptured?.(`[Screen share] ${description}`)
-  }
-
   return (
     <div className="border-t border-border bg-background px-4 pb-4 pt-3 md:px-6">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl border border-border bg-card p-2.5 shadow-sm shadow-black/10">
+        {screenReading && (
+          <div className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+            <MonitorUp className="size-3.5 animate-pulse" />
+            Reading your screen…
+          </div>
+        )}
+
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-1">
             {files.map((file, i) => (
@@ -104,11 +111,7 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
               <Globe className="size-3.5" />
               Browse web
             </Button>
-            <ScreenShareButton
-              conversationId={conversationId}
-              disabled={!conversationId}
-              onCaptured={handleScreenCaptured}
-            />
+            <ScreenShareButton ref={screenShareRef} disabled={!conversationId} />
           </div>
 
           <Button

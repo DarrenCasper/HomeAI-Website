@@ -6,8 +6,7 @@ const PRIMARY_CHECK_TIMEOUT_MS = parseInt(process.env.OLLAMA_PRIMARY_TIMEOUT_MS 
 const PRIMARY_CACHE_TTL_MS = 15000; // avoid re-checking reachability on every single call in a burst
 
 const FALLBACK_MODEL_MAP = JSON.parse(
-  process.env.OLLAMA_FALLBACK_MODEL_MAP ||
-  '{"qwen3.5:4b":"qwen3.5:0.8b","deepseek-r1:7b":"deepseek-r1:1.5b"}'
+  process.env.OLLAMA_FALLBACK_MODEL_MAP || '{"qwen3.5:4b":"qwen3.5:0.8b"}'
 );
 
 let primaryReachableCache = null; // { reachable: boolean, checkedAt: number }

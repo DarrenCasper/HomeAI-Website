@@ -51,7 +51,7 @@ _browse_semaphore = asyncio.Semaphore(1)
 # tool-calling/structured-action loop is most thoroughly tested against
 # OpenAI models, and gpt-4.1-mini is cheap enough to run per-task while being
 # both faster and more reliable than local CPU-bound inference was. The main
-# chat model (qwen3.5 / deepseek-r1) is unaffected and stays fully local;
+# chat model (qwen3.5) is unaffected and stays fully local;
 # only this browsing sub-agent's own LLM call goes external.
 #
 # Uses browser_use.llm.ChatOpenAI (their own native OpenAI wrapper), NOT

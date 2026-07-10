@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import { getConversation, getChatJob, postChat, sendMessage } from "@/lib/api"
+import { getConversation, getChatJob, postChat, sendMessage, sendScreenCapture } from "@/lib/api"
 import { DEFAULT_MODEL } from "@/lib/models"
 import { useConversations } from "@/context/ConversationsContext"
 import { toast } from "@/hooks/use-toast"
@@ -25,6 +25,7 @@ export function useChat(conversationId, projectId) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(Boolean(conversationId))
   const [pending, setPending] = useState(false)
+  const [screenReading, setScreenReading] = useState(false)
   const [model, setModel] = useState(DEFAULT_MODEL)
 
   // Set right before navigating away from a freshly-created conversation so the
@@ -130,9 +131,9 @@ export function useChat(conversationId, projectId) {
     })
   }, [])
 
-  // Inserts a message straight into the visible transcript without going
-  // through send()/the backend - used for the screen-share capture flow,
-  // where the description already came back from a separate /api/vision
+  // Inserts a message straight into the visible transcript without a round
+  // trip through /api/chat - used internally by send() for the screen-share
+  // note, whose description already came back from a separate /api/vision
   // call and just needs to show up immediately instead of waiting on the
   // next full conversation refetch.
   const addUserNote = useCallback((content) => {
@@ -150,9 +151,35 @@ export function useChat(conversationId, projectId) {
   )
 
   const send = useCallback(
-    async (text, attachments = []) => {
+    async (text, attachments = [], frame = null) => {
       const trimmed = text.trim()
       if ((!trimmed && attachments.length === 0) || pending) return
+
+      setPending(true)
+
+      // A screen-share frame gets described first so its note lands in the
+      // transcript (and in Mongo, via /api/vision) ahead of the user's own
+      // question - the same order the old manual "Capture & ask" + separate
+      // send produced, just triggered together instead of as two clicks.
+      // conversationId is required since /api/vision attaches to an existing
+      // conversation; captureFrame() only ever returns non-null once sharing
+      // is allowed to start, which itself requires a conversationId (see
+      // Composer.jsx), so this is a defensive check, not the normal path.
+      if (frame && conversationId) {
+        setScreenReading(true)
+        try {
+          const { description } = await sendScreenCapture({ image: frame, conversationId })
+          addUserNote(`[Screen share] ${description}`)
+        } catch (err) {
+          // Vision failed or timed out - degrade gracefully and send the
+          // message without screen context rather than blocking the whole
+          // send, same principle as the browse_web tool falling back when
+          // the browsing agent is unreachable.
+          console.error("Screen capture failed, sending without it:", err.message)
+        } finally {
+          setScreenReading(false)
+        }
+      }
 
       setMessages((prev) => [
         ...prev,
@@ -162,7 +189,6 @@ export function useChat(conversationId, projectId) {
           attachments: attachments.map((f) => ({ name: f.name, size: f.size })),
         },
       ])
-      setPending(true)
 
       // The backend's /api/chat only accepts a JSON body today - attachments
       // fall back to the old single-shot multipart call so the failure
@@ -253,6 +279,7 @@ export function useChat(conversationId, projectId) {
       conversationId,
       projectId,
       refresh,
+      addUserNote,
       appendAssistantDelta,
       setAssistantContent,
       finalizeAssistantMessage,
@@ -261,5 +288,5 @@ export function useChat(conversationId, projectId) {
     ]
   )
 
-  return { messages, loading, pending, model, setModel, send, addUserNote }
+  return { messages, loading, pending, screenReading, model, setModel, send }
 }

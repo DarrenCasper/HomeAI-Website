@@ -12,6 +12,15 @@ import {
 export function ModelSelector({ value, onChange }) {
   const current = getModel(value)
 
+  // A dropdown offering a single, already-selected option is just noise.
+  if (MODELS.length <= 1) {
+    return (
+      <span className="flex items-center gap-1.5 px-2 py-1.5 text-sm text-foreground">
+        {current.label}
+      </span>
+    )
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>

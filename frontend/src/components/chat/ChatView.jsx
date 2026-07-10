@@ -6,7 +6,7 @@ import { Composer } from "@/components/chat/Composer"
 
 export function ChatView() {
   const { conversationId, projectId } = useParams()
-  const { messages, loading, pending, model, setModel, send, addUserNote } = useChat(
+  const { messages, loading, pending, screenReading, model, setModel, send } = useChat(
     conversationId,
     projectId
   )
@@ -20,7 +20,7 @@ export function ChatView() {
         onSend={send}
         disabled={pending}
         conversationId={conversationId}
-        onScreenCaptured={addUserNote}
+        screenReading={screenReading}
       />
     </div>
   )

@@ -5,7 +5,7 @@ const messageSchema = new Schema({
   role: { type: String, enum: ['user', 'assistant'], required: true },
   content: { type: String, required: true },
   model: { type: String, default: null }, // which Ollama model answered; null for user turns
-  thinking: { type: String, default: null }, // reasoning trace, deepseek-r1 only - see utils/modelMode.js supportsThinking
+  thinking: { type: String, default: null }, // reasoning trace for thinking-capable models - see utils/modelMode.js supportsThinking
   createdAt: { type: Date, default: Date.now }
 });
 

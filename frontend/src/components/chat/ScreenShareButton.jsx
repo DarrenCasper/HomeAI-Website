@@ -1,20 +1,25 @@
-import { useRef, useState } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
 import { MonitorUp, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { sendScreenCapture } from "@/lib/api"
 import { toast } from "@/hooks/use-toast"
 
-// Capture is on-demand (a button click), not on a timer - vision inference is
-// much heavier per call than text, so continuous polling would hammer Ollama
-// for little benefit.
-export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
+// How often the off-screen canvas is refreshed with the current video frame
+// while sharing is active. This is purely a client-side redraw - no network
+// call happens on this interval. The vision model only ever gets invoked
+// when the user actually sends a message (see Composer.jsx's handleSubmit
+// grabbing captureFrame() at send time), so leaving a share running for
+// minutes costs nothing beyond this local canvas redraw.
+const FRAME_REFRESH_MS = 1000
+
+// Exposes captureFrame() via ref instead of pushing frames up through props -
+// the parent only ever needs "give me whatever's on screen right now" at the
+// moment a message is sent, not a continuously updating value to react to.
+export const ScreenShareButton = forwardRef(function ScreenShareButton({ disabled }, ref) {
   const [sharing, setSharing] = useState(false)
-  const [capturing, setCapturing] = useState(false)
-  const [stillAnalyzing, setStillAnalyzing] = useState(false)
   const streamRef = useRef(null)
   const videoRef = useRef(null)
-  const stillAnalyzingTimeoutRef = useRef(null)
+  const canvasRef = useRef(null)
 
   const stopShare = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -46,37 +51,37 @@ export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
     }
   }
 
-  const captureAndAsk = async () => {
-    if (!videoRef.current || !conversationId) return
-
-    setCapturing(true)
-    // sendScreenCapture now polls a vision job in the background instead of
-    // a single request, so a capture can take a while - flip the label after
-    // 5s so a slow response doesn't read as stuck.
-    stillAnalyzingTimeoutRef.current = setTimeout(() => setStillAnalyzing(true), 5000)
-    try {
-      const canvas = document.createElement("canvas")
+  useEffect(() => {
+    if (!sharing) return
+    const interval = setInterval(() => {
+      if (!videoRef.current || !canvasRef.current) return
+      const canvas = canvasRef.current
       canvas.width = videoRef.current.videoWidth
       canvas.height = videoRef.current.videoHeight
       canvas.getContext("2d").drawImage(videoRef.current, 0, 0)
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.7)
-      const base64 = dataUrl.split(",")[1]
+    }, FRAME_REFRESH_MS)
+    return () => clearInterval(interval)
+  }, [sharing])
 
-      const { description } = await sendScreenCapture({ image: base64, conversationId })
-      onCaptured?.(description)
-    } catch (err) {
-      toast({ variant: "destructive", title: "Screen capture failed", description: err.message })
-    } finally {
-      clearTimeout(stillAnalyzingTimeoutRef.current)
-      setStillAnalyzing(false)
-      setCapturing(false)
-    }
-  }
+  useImperativeHandle(
+    ref,
+    () => ({
+      // Returns the latest frame as base64 JPEG (no data: prefix), or null
+      // if not currently sharing / no frame has landed on the canvas yet.
+      captureFrame: () => {
+        if (!sharing || !canvasRef.current || !canvasRef.current.width) return null
+        const dataUrl = canvasRef.current.toDataURL("image/jpeg", 0.7)
+        return dataUrl.split(",")[1]
+      },
+    }),
+    [sharing]
+  )
 
   return (
     <>
       {/* Kept off-screen but rendered (not display:none) so videoWidth/videoHeight populate. */}
       <video ref={videoRef} muted className="sr-only" />
+      <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
       {!sharing ? (
         <Button
           type="button"
@@ -91,17 +96,10 @@ export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
         </Button>
       ) : (
         <div className="flex items-center gap-1">
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={captureAndAsk}
-            disabled={capturing || !conversationId}
-            className="gap-1.5 px-2"
-          >
+          <span className="flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
             <MonitorUp className="size-3.5" />
-            {capturing ? (stillAnalyzing ? "Still analyzing…" : "Capturing…") : "Capture & ask"}
-          </Button>
+            Sharing screen
+          </span>
           <Button
             type="button"
             variant="ghost"
@@ -116,4 +114,4 @@ export function ScreenShareButton({ conversationId, onCaptured, disabled }) {
       )}
     </>
   )
-}
+})

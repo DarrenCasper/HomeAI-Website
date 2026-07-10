@@ -4,11 +4,6 @@ export const MODELS = [
     label: "Qwen3.5",
     description: "Fast & general",
   },
-  {
-    value: "deepseek-r1:7b",
-    label: "DeepSeek R1",
-    description: "Deep reasoning",
-  },
 ]
 
 export const DEFAULT_MODEL = MODELS[0].value

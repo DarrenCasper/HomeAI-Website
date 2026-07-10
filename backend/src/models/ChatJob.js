@@ -8,7 +8,7 @@ const chatJobSchema = new Schema({
   model: { type: String, required: true },
   status: { type: String, enum: ['queued', 'running', 'done', 'error'], default: 'queued', index: true },
   partial: { type: String, default: '' },
-  thinking: { type: String, default: '' }, // reasoning trace, deepseek-r1 only - see utils/modelMode.js supportsThinking
+  thinking: { type: String, default: '' }, // reasoning trace for thinking-capable models - see utils/modelMode.js supportsThinking
   answer: { type: String, default: null },
   error: { type: String, default: null },
   createdAt: { type: Date, default: Date.now },
