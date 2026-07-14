@@ -75,7 +75,7 @@ export function SidebarContent({ onNavigate }) {
                   className={(state) => cn(navLinkClasses(state), "min-w-0 flex-1")}
                 >
                   <Folder className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                  <span className="truncate">{project.name}</span>
+                  <span className="min-w-0 truncate">{project.name}</span>
                 </NavLink>
                 <ProjectMenu project={project} onNavigate={onNavigate} />
               </div>
@@ -109,7 +109,7 @@ export function SidebarContent({ onNavigate }) {
                     className={(state) => cn(navLinkClasses(state), "min-w-0 flex-1")}
                   >
                     <MessageSquare className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                    <span className="truncate">{conversation.title || "Untitled chat"}</span>
+                    <span className="min-w-0 truncate">{conversation.title || "Untitled chat"}</span>
                   </NavLink>
                   <ConversationMenu conversation={conversation} onNavigate={onNavigate} />
                 </div>

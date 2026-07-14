@@ -81,7 +81,7 @@ export function ProjectView() {
                 className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
               >
                 <MessageSquare className="size-4 shrink-0 text-muted-foreground" />
-                <span className="truncate">{conversation.title || "Untitled chat"}</span>
+                <span className="min-w-0 truncate">{conversation.title || "Untitled chat"}</span>
               </Link>
             ))}
           </div>

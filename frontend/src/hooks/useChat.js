@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
 import { getConversation, getChatJob, postChat, sendMessage, sendScreenCapture, speakText } from "@/lib/api"
-import { DEFAULT_MODEL } from "@/lib/models"
+import { DEFAULT_MODEL, MODELS } from "@/lib/models"
 import { useConversations } from "@/context/ConversationsContext"
 import { toast } from "@/hooks/use-toast"
 
@@ -66,8 +66,17 @@ export function useChat(conversationId, projectId) {
         if (cancelled) return
         const msgs = data.messages ?? []
         setMessages(msgs)
+        // Only trust a conversation's last-used model if it's still
+        // selectable today - an older conversation may have been started
+        // with a model that's since been removed (e.g. deepseek-r1, or an
+        // old qwen3.5 tag), and blindly restoring it would silently lock
+        // every future message in that thread onto a dead model tag with
+        // no way to override it now that the picker collapses to a single
+        // static label (see ModelSelector.jsx) when only one model exists.
         const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant" && m.model)
-        if (lastAssistant) setModel(lastAssistant.model)
+        if (lastAssistant && MODELS.some((m) => m.value === lastAssistant.model)) {
+          setModel(lastAssistant.model)
+        }
       })
       .catch((err) => {
         if (cancelled) return
