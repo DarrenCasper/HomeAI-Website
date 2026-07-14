@@ -80,9 +80,13 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
   })
 }
 
-// POST /api/chat { message, model, conversationId?, projectId? } -> raw Response.
+// POST /api/chat { message, model, conversationId?, projectId?, screenContext? } -> raw Response.
 // projectId only matters when starting a brand-new conversation (no
-// conversationId) - it tags that conversation into the project.
+// conversationId) - it tags that conversation into the project. screenContext
+// is a plain-text screen-share description (see useChat.js's send()) - the
+// backend folds it into the message it sends to the model as invisible
+// background context; it's never stored or shown, so it isn't echoed back
+// anywhere in this response.
 // The backend picks one of two response shapes depending on the model (see
 // backend src/utils/modelMode.js):
 //  - stream mode: 200, Content-Type text/plain, body is raw text chunks, and
@@ -90,7 +94,7 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
 //  - job mode: 200 JSON { mode: "job", jobId, status, statusUrl, conversationId }
 // Callers must branch on response.headers.get("content-type") themselves -
 // this stays unparsed so streaming callers can read response.body directly.
-export function postChat({ message, model, conversationId, projectId }) {
+export function postChat({ message, model, conversationId, projectId, screenContext }) {
   return fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -100,6 +104,7 @@ export function postChat({ message, model, conversationId, projectId }) {
       model,
       ...(conversationId ? { conversationId } : {}),
       ...(projectId ? { projectId } : {}),
+      ...(screenContext ? { screenContext } : {}),
     }),
   })
 }
@@ -193,4 +198,52 @@ export function register({ name, email, password }) {
 // POST /api/auth/logout -> {}
 export function logout() {
   return request("/auth/logout", { method: "POST" })
+}
+
+// GET /api/usage/summary -> { totals: {today, week, month, allTime}, daily: [{date, vision, browsing, total}] }
+// costUsd figures throughout - vision/browsing OpenAI spend, whole-app (not per-user).
+export function getUsageSummary() {
+  return request("/usage/summary")
+}
+
+// POST /api/documents/upload (multipart) -> { sourceFileName, chunkCount }
+// Chunked, embedded, and indexed for POST /api/chat's search_documents tool -
+// see backend src/routes/documents.js. Bypasses request()/JSON since this is
+// a file upload, same pattern as the legacy multipart path in sendMessage above.
+export function uploadDocument(file) {
+  const form = new FormData()
+  form.append("file", file)
+  return fetch(`${BASE}/documents/upload`, { method: "POST", body: form, credentials: "include" }).then(
+    handleResponse
+  )
+}
+
+// GET /api/documents -> [{ sourceFileName, chunkCount, uploadedAt }], most recent first
+export function getDocuments() {
+  return request("/documents")
+}
+
+// DELETE /api/documents/:sourceFileName -> 204
+export function deleteDocument(sourceFileName) {
+  return request(`/documents/${encodeURIComponent(sourceFileName)}`, { method: "DELETE" })
+}
+
+// POST /api/voice/transcribe (multipart) -> { text }
+export function transcribeAudio(blob) {
+  const form = new FormData()
+  form.append("audio", blob, "recording.webm")
+  return fetch(`${BASE}/voice/transcribe`, { method: "POST", body: form, credentials: "include" }).then(
+    handleResponse
+  )
+}
+
+// POST /api/voice/speak { text } -> raw Response, body is audio/wav bytes.
+// Left unparsed (like postChat) so the caller can read it as a Blob itself.
+export function speakText(text) {
+  return fetch(`${BASE}/voice/speak`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ text }),
+  })
 }

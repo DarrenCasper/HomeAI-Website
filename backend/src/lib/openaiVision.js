@@ -1,3 +1,6 @@
+const UsageLog = require('../models/UsageLog');
+const { estimateCostUsd } = require('./pricing');
+
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
@@ -6,7 +9,7 @@ const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4.1-mini';
 // request-building with ollama.js's ollamaVisionChat: OpenAI's message shape
 // (content as an array of typed parts, image as a data: URL) is different
 // from Ollama's `images: [base64]` array, not just a different endpoint.
-async function openaiVisionChat(prompt, base64Image) {
+async function openaiVisionChat(prompt, base64Image, userId) {
   if (!OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is not set');
   }
@@ -48,7 +51,31 @@ async function openaiVisionChat(prompt, base64Image) {
     throw new Error('Unexpected response shape from OpenAI');
   }
 
+  await logUsage(data.usage, userId);
+
   return content;
+}
+
+// Best-effort: a logging failure must never break the vision response the
+// caller is already holding - every failure mode here is caught and logged,
+// never rethrown. userId is only ever used by lib/usageCap.js to total one
+// user's monthly spend against USER_MONTHLY_CAP_USD.
+async function logUsage(usage, userId) {
+  if (!usage) return;
+  try {
+    const promptTokens = usage.prompt_tokens || 0;
+    const completionTokens = usage.completion_tokens || 0;
+    await UsageLog.create({
+      userId: userId || null,
+      kind: 'vision',
+      model: OPENAI_VISION_MODEL,
+      promptTokens,
+      completionTokens,
+      costUsd: estimateCostUsd(OPENAI_VISION_MODEL, promptTokens, completionTokens)
+    });
+  } catch (err) {
+    console.error('[openaiVision] usage logging failed:', err.message);
+  }
 }
 
 module.exports = { openaiVisionChat };

@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { Folder, MessageSquare, Plus, Sparkles } from "lucide-react"
+import { BarChart3, FileText, Folder, MessageSquare, Plus, Sparkles } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { useConversations } from "@/context/ConversationsContext"
@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { NewProjectDialog } from "@/components/layout/NewProjectDialog"
 import { ProjectMenu } from "@/components/layout/ProjectMenu"
 import { ConversationMenu } from "@/components/layout/ConversationMenu"
+import { DocumentsDialog } from "@/components/layout/DocumentsDialog"
 import { UserMenu } from "@/components/layout/UserMenu"
 
 const navLinkClasses = ({ isActive }) =>
@@ -118,6 +119,18 @@ export function SidebarContent({ onNavigate }) {
       </div>
 
       <div className="border-t border-sidebar-border px-3 py-3">
+        <DocumentsDialog
+          trigger={
+            <button type="button" className={navLinkClasses({ isActive: false })}>
+              <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+              Documents
+            </button>
+          }
+        />
+        <NavLink to="/usage" onClick={onNavigate} className={navLinkClasses}>
+          <BarChart3 className="size-3.5 shrink-0 text-muted-foreground" />
+          Usage
+        </NavLink>
         <UserMenu onNavigate={onNavigate} />
         <p className="mt-2 text-center text-[11px] text-muted-foreground">
           Homelab AI processes data locally. No telemetry.

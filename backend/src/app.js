@@ -8,6 +8,9 @@ const historyRouter = require('./routes/history');
 const chatRouter = require('./routes/chat');
 const projectsRouter = require('./routes/projects');
 const visionRouter = require('./routes/vision');
+const usageRouter = require('./routes/usage');
+const documentsRouter = require('./routes/documents');
+const voiceRouter = require('./routes/voice');
 
 const app = express();
 
@@ -49,6 +52,12 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 // log in, and /me does its own cookie check and 401s on its own.
 app.use('/api/auth', authRouter);
 
+// Also ahead of the auth gate: UsageLog isn't user-scoped (whole-app OpenAI
+// cost tracking, not per-user billing), and POST /api/usage/log is called
+// server-to-server by the browsing-agent service, which has no Tailscale
+// identity of its own - see routes/usage.js.
+app.use('/api/usage', usageRouter);
+
 app.use(auth);
 
 app.use('/api/whoami', whoamiRouter);
@@ -56,6 +65,8 @@ app.use('/api/history', historyRouter);
 app.use('/api/chat', chatRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/vision', visionRouter);
+app.use('/api/documents', documentsRouter);
+app.use('/api/voice', voiceRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

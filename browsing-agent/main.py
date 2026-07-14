@@ -5,11 +5,12 @@ import os
 import socket
 from urllib.parse import urlparse
 
+import httpx
 import requests
 import trafilatura
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from browser_use import Agent, BrowserProfile
 from browser_use.llm import ChatOpenAI
 
@@ -43,6 +44,12 @@ BROWSER_AGENT_TIMEOUT_S = int(os.environ.get("BROWSER_AGENT_TIMEOUT_S", "600"))
 ALLOW_PRIVATE_NET = os.environ.get("BROWSER_AGENT_ALLOW_PRIVATE_NET", "false").lower() == "true"
 MAX_CHARS = 8000
 
+# Where the Node backend lives, for the fire-and-forget usage-logging POST
+# below - defaults to same-host for local dev; override for docker-compose
+# (e.g. http://backend:3000) or a split deployment.
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://127.0.0.1:3000")
+USAGE_LOG_TIMEOUT_S = 5
+
 # Only one real Chromium instance at a time -- too much for a dual-core CPU
 # box to run more than one /browse task concurrently.
 _browse_semaphore = asyncio.Semaphore(1)
@@ -69,8 +76,13 @@ class FetchRequest(BaseModel):
 
 
 class BrowseRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     task: str
     max_steps: int = 12
+    # Purely for usage-log attribution (see _log_usage below) - optional so
+    # a manual/test call against this service directly still works.
+    user_id: str | None = Field(default=None, alias="userId")
 
 
 def _is_private_host(url: str) -> bool:
@@ -97,6 +109,30 @@ def _build_browser_profile() -> BrowserProfile:
         block_ip_addresses=True,
         prohibited_domains=["localhost", "*.local", "*.internal", "*.lan", "*.ts.net"],
     )
+
+
+# Fire-and-forget: scheduled via asyncio.create_task (not awaited by the
+# /browse handler), so a slow or unreachable backend can never delay or
+# break the actual /browse response - only ever logged here, never raised.
+# agent.token_cost_service accumulates usage across every LLM call browser-
+# use made during this run (one per agent step, possibly several), so this
+# is the total for the whole task, not just the last step.
+async def _log_usage(agent: Agent, user_id: str | None) -> None:
+    try:
+        summary = await agent.token_cost_service.get_usage_summary()
+        async with httpx.AsyncClient(timeout=USAGE_LOG_TIMEOUT_S) as client:
+            await client.post(
+                f"{BACKEND_URL}/api/usage/log",
+                json={
+                    "userId": user_id,
+                    "kind": "browsing",
+                    "model": BROWSER_AGENT_MODEL,
+                    "promptTokens": summary.total_prompt_tokens,
+                    "completionTokens": summary.total_completion_tokens,
+                },
+            )
+    except Exception as err:
+        logger.warning("usage logging failed: %s", err)
 
 
 def _beautifulsoup_fallback(url: str) -> str:
@@ -154,6 +190,7 @@ async def browse(req: BrowseRequest):
             result = await asyncio.wait_for(
                 agent.run(max_steps=req.max_steps), timeout=BROWSER_AGENT_TIMEOUT_S
             )
+            asyncio.create_task(_log_usage(agent, req.user_id))
         except asyncio.TimeoutError:
             raise HTTPException(status_code=504, detail="browse_web task timed out")
         except Exception as err:

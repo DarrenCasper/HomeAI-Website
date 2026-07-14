@@ -6,10 +6,17 @@ import { Composer } from "@/components/chat/Composer"
 
 export function ChatView() {
   const { conversationId, projectId } = useParams()
-  const { messages, loading, pending, screenReading, model, setModel, send } = useChat(
-    conversationId,
-    projectId
-  )
+  const {
+    messages,
+    loading,
+    pending,
+    preparingMessage,
+    speakEnabled,
+    setSpeakEnabled,
+    model,
+    setModel,
+    send,
+  } = useChat(conversationId, projectId)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -20,7 +27,9 @@ export function ChatView() {
         onSend={send}
         disabled={pending}
         conversationId={conversationId}
-        screenReading={screenReading}
+        preparingMessage={preparingMessage}
+        speakEnabled={speakEnabled}
+        onSpeakEnabledChange={setSpeakEnabled}
       />
     </div>
   )

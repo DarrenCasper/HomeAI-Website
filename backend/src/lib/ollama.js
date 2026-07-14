@@ -50,10 +50,11 @@ async function resolveOllamaTarget(model) {
   return { url: FALLBACK_OLLAMA_URL, model: FALLBACK_MODEL_MAP[model] || model };
 }
 
-// Tool schema for the browsing agent, handed to Ollama on the non-streaming
-// "decide" call in routes/chat.js so tool-capable models can request a live
-// web lookup instead of answering from training data alone.
-const BROWSE_TOOL_SCHEMA = [
+// Tool schemas handed to Ollama on the non-streaming "decide" call in
+// routes/chat.js so tool-capable models can request a live web lookup or a
+// search over the user's own uploaded documents instead of answering from
+// training data alone.
+const WEB_TOOLS_SCHEMA = [
   {
     type: 'function',
     function: {
@@ -66,6 +67,21 @@ const BROWSE_TOOL_SCHEMA = [
           task: { type: 'string', description: 'A clear, specific instruction describing what to find or do on the web.' }
         },
         required: ['task']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_documents',
+      description:
+        "Search the user's own uploaded documents/notes for relevant information. Use this when the question might be answered by something the user has previously uploaded, not the live web.",
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'What to search for in the uploaded documents.' }
+        },
+        required: ['query']
       }
     }
   }
@@ -229,4 +245,4 @@ async function ollamaVisionChat(model, prompt, base64Image) {
   return data.message.content;
 }
 
-module.exports = { ollamaChat, ollamaChatStream, ollamaVisionChat, BROWSE_TOOL_SCHEMA };
+module.exports = { ollamaChat, ollamaChatStream, ollamaVisionChat, WEB_TOOLS_SCHEMA };

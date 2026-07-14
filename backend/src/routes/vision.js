@@ -4,6 +4,7 @@ const Conversation = require('../models/Conversation');
 const VisionJob = require('../models/VisionJob');
 const { openaiVisionChat } = require('../lib/openaiVision');
 const { ollamaVisionChat } = require('../lib/ollama');
+const { isOverCap, USER_MONTHLY_CAP_USD } = require('../lib/usageCap');
 
 // Local Ollama model, used only as a fallback if OpenAI is unreachable or
 // OPENAI_API_KEY isn't set - see runVisionJob below.
@@ -26,6 +27,18 @@ router.post('/', async (req, res) => {
   }
   if (!mongoose.isValidObjectId(conversationId)) {
     return res.status(404).json({ error: 'Conversation not found' });
+  }
+
+  // Checked before touching Mongo for the conversation/job - no point doing
+  // that work just to reject afterward. The OpenAI call itself is what
+  // costs money; the local-Ollama fallback below doesn't, but by the time
+  // we're this deep in a request it's simpler (and more predictable for the
+  // user) to cap the feature outright rather than silently degrade to a
+  // lower-quality model without saying so.
+  if (await isOverCap(req.userId)) {
+    return res.status(429).json({
+      error: `Monthly usage limit reached ($${USER_MONTHLY_CAP_USD.toFixed(2)}) - screen-share description is unavailable until next month.`
+    });
   }
 
   let conversation;
@@ -63,12 +76,16 @@ router.post('/', async (req, res) => {
 
   // image is only ever held in memory for this call - not persisted here or
   // in runVisionJob, matching the "don't stockpile screenshots" principle.
-  runVisionJob(job._id, conversation._id, prompt, image).catch((err) => {
+  runVisionJob(job._id, prompt, image, req.userId).catch((err) => {
     console.error('[vision] background job crashed:', err.message);
   });
 });
 
-async function runVisionJob(jobId, conversationId, prompt, image) {
+// Stores the description on the VisionJob only - never touches
+// conversation.messages. The frontend fetches it via polling and passes it
+// to POST /api/chat as ambient screenContext for that one request; it's
+// never a persisted or visible chat message (see routes/chat.js).
+async function runVisionJob(jobId, prompt, image, userId) {
   try {
     await VisionJob.updateOne({ _id: jobId }, { $set: { status: 'running', updatedAt: new Date() } });
   } catch (err) {
@@ -77,7 +94,7 @@ async function runVisionJob(jobId, conversationId, prompt, image) {
 
   let description;
   try {
-    description = await openaiVisionChat(prompt, image);
+    description = await openaiVisionChat(prompt, image, userId);
   } catch (err) {
     // Degrades to the local model rather than failing outright - same
     // "don't hard-fail on an external dependency" pattern as the browse_web
@@ -106,22 +123,6 @@ async function runVisionJob(jobId, conversationId, prompt, image) {
     );
   } catch (err) {
     console.error('[vision] job done update failed:', err.message);
-  }
-
-  try {
-    // Re-fetched rather than reusing the request-time doc - same pattern as
-    // runJob() in chat.js, since other messages may have landed on this
-    // conversation while the vision call was in flight.
-    const conversation = await Conversation.findById(conversationId);
-    if (conversation) {
-      // role must be 'user' or 'assistant' per the Conversation schema -
-      // there's no dedicated "vision" role, so this is stored as a user turn
-      // with a recognizable prefix the frontend styles distinctly.
-      conversation.messages.push({ role: 'user', content: `[Screen share] ${description}`, model: null });
-      await conversation.save();
-    }
-  } catch (err) {
-    console.error('[vision] saving conversation failed:', err.message);
   }
 }
 

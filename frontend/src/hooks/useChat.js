@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 
-import { getConversation, getChatJob, postChat, sendMessage, sendScreenCapture } from "@/lib/api"
+import { getConversation, getChatJob, postChat, sendMessage, sendScreenCapture, speakText } from "@/lib/api"
 import { DEFAULT_MODEL } from "@/lib/models"
 import { useConversations } from "@/context/ConversationsContext"
 import { toast } from "@/hooks/use-toast"
@@ -25,7 +25,14 @@ export function useChat(conversationId, projectId) {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(Boolean(conversationId))
   const [pending, setPending] = useState(false)
-  const [screenReading, setScreenReading] = useState(false)
+  // True only while describing an active screen-share frame, ahead of the
+  // real /api/chat call - kept generic ("preparing", not "reading screen")
+  // because the whole point of this flow is that screen-sharing's effect on
+  // answers is invisible; a distinctly-worded loading state would give it away.
+  const [preparingMessage, setPreparingMessage] = useState(false)
+  // Off by default (see VoiceButton.jsx/Composer.jsx's speaker toggle) -
+  // auto-playing speech for every reply unconditionally gets old fast.
+  const [speakEnabled, setSpeakEnabled] = useState(false)
   const [model, setModel] = useState(DEFAULT_MODEL)
 
   // Set right before navigating away from a freshly-created conversation so the
@@ -131,13 +138,26 @@ export function useChat(conversationId, projectId) {
     })
   }, [])
 
-  // Inserts a message straight into the visible transcript without a round
-  // trip through /api/chat - used internally by send() for the screen-share
-  // note, whose description already came back from a separate /api/vision
-  // call and just needs to show up immediately instead of waiting on the
-  // next full conversation refetch.
-  const addUserNote = useCallback((content) => {
-    setMessages((prev) => [...prev, { role: "user", content }])
+  // Best-effort: a broken/unreachable voice-agent shouldn't interrupt the
+  // chat flow with a toast for what's an optional, off-by-default feature -
+  // logged and silently dropped instead. `new Audio(url)` is a genuine
+  // HTMLAudioElement (same constructor `document.createElement("audio")`
+  // backs), just not attached to the DOM tree, so no extra state/JSX is
+  // needed to render one.
+  const playSpokenText = useCallback(async (text) => {
+    if (!text || !text.trim()) return
+    try {
+      const response = await speakText(text)
+      if (!response.ok) throw new Error(`Speech synthesis failed (${response.status})`)
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio(url)
+      audio.addEventListener("ended", () => URL.revokeObjectURL(url))
+      audio.addEventListener("error", () => URL.revokeObjectURL(url))
+      await audio.play()
+    } catch (err) {
+      console.error("Voice reply failed:", err.message)
+    }
   }, [])
 
   const handleNewConversationId = useCallback(
@@ -157,19 +177,20 @@ export function useChat(conversationId, projectId) {
 
       setPending(true)
 
-      // A screen-share frame gets described first so its note lands in the
-      // transcript (and in Mongo, via /api/vision) ahead of the user's own
-      // question - the same order the old manual "Capture & ask" + separate
-      // send produced, just triggered together instead of as two clicks.
-      // conversationId is required since /api/vision attaches to an existing
-      // conversation; captureFrame() only ever returns non-null once sharing
-      // is allowed to start, which itself requires a conversationId (see
-      // Composer.jsx), so this is a defensive check, not the normal path.
+      // A screen-share frame gets described first, but only ever as ambient
+      // context passed to /api/chat below - never inserted into the visible
+      // transcript, and never sent to /api/chat as anything but the
+      // screenContext field. conversationId is required since /api/vision
+      // attaches to an existing conversation; captureFrame() only ever
+      // returns non-null once sharing is allowed to start, which itself
+      // requires a conversationId (see Composer.jsx), so this is a
+      // defensive check, not the normal path.
+      let screenContext = null
       if (frame && conversationId) {
-        setScreenReading(true)
+        setPreparingMessage(true)
         try {
           const { description } = await sendScreenCapture({ image: frame, conversationId })
-          addUserNote(`[Screen share] ${description}`)
+          screenContext = description
         } catch (err) {
           // Vision failed or timed out - degrade gracefully and send the
           // message without screen context rather than blocking the whole
@@ -177,7 +198,7 @@ export function useChat(conversationId, projectId) {
           // the browsing agent is unreachable.
           console.error("Screen capture failed, sending without it:", err.message)
         } finally {
-          setScreenReading(false)
+          setPreparingMessage(false)
         }
       }
 
@@ -210,7 +231,7 @@ export function useChat(conversationId, projectId) {
       }
 
       try {
-        const response = await postChat({ message: trimmed, model, conversationId, projectId })
+        const response = await postChat({ message: trimmed, model, conversationId, projectId, screenContext })
         const contentType = response.headers.get("content-type") || ""
 
         if (contentType.includes("application/json")) {
@@ -235,6 +256,7 @@ export function useChat(conversationId, projectId) {
             if (job.status === "done") {
               setAssistantContent(job.answer, model, job.thinking || "")
               finalizeAssistantMessage()
+              if (speakEnabled) playSpokenText(job.answer)
               break
             }
             setAssistantContent(job.partial || "", model, job.thinking || "")
@@ -244,6 +266,7 @@ export function useChat(conversationId, projectId) {
 
           const reader = response.body.getReader()
           const decoder = new TextDecoder()
+          let fullReply = ""
 
           while (true) {
             const { done, value } = await reader.read()
@@ -254,11 +277,13 @@ export function useChat(conversationId, projectId) {
             }
             const filtered = decoder.decode(value, { stream: true }).split(HEARTBEAT_SENTINEL).join("")
             if (filtered) {
+              fullReply += filtered
               appendAssistantDelta(filtered, model)
             }
           }
 
           finalizeAssistantMessage()
+          if (speakEnabled) playSpokenText(fullReply)
         }
 
         refresh()
@@ -278,15 +303,26 @@ export function useChat(conversationId, projectId) {
       model,
       conversationId,
       projectId,
+      speakEnabled,
       refresh,
-      addUserNote,
       appendAssistantDelta,
       setAssistantContent,
       finalizeAssistantMessage,
       dropAssistantPlaceholder,
       handleNewConversationId,
+      playSpokenText,
     ]
   )
 
-  return { messages, loading, pending, screenReading, model, setModel, send }
+  return {
+    messages,
+    loading,
+    pending,
+    preparingMessage,
+    speakEnabled,
+    setSpeakEnabled,
+    model,
+    setModel,
+    send,
+  }
 }

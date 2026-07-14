@@ -1,13 +1,23 @@
 import { useRef, useState } from "react"
-import { ArrowUp, Globe, MonitorUp, X } from "lucide-react"
+import { ArrowUp, Globe, Loader2, Volume2, VolumeX, X } from "lucide-react"
 
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { ModelSelector } from "@/components/chat/ModelSelector"
 import { AttachMenu } from "@/components/chat/AttachMenu"
 import { ScreenShareButton } from "@/components/chat/ScreenShareButton"
+import { VoiceButton } from "@/components/chat/VoiceButton"
 
-export function Composer({ model, onModelChange, onSend, disabled, conversationId, screenReading }) {
+export function Composer({
+  model,
+  onModelChange,
+  onSend,
+  disabled,
+  conversationId,
+  preparingMessage,
+  speakEnabled,
+  onSpeakEnabledChange,
+}) {
   const [value, setValue] = useState("")
   const [files, setFiles] = useState([])
   // Hint only, no request-shape change: the backend doesn't take a flag for
@@ -49,13 +59,28 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
     setFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
+  // Populates the input, doesn't send - the user reviews/edits a
+  // transcription before it goes anywhere, same as anything they'd typed.
+  const handleTranscribed = (text) => {
+    setValue((prev) => (prev.trim() ? `${prev.trim()} ${text}` : text))
+    // The textarea's height only needs to catch up once React has actually
+    // painted the new (possibly multi-line) value - a plain resize call
+    // here would still read the stale scrollHeight from before this update.
+    requestAnimationFrame(() => {
+      if (textareaRef.current) resizeTextarea(textareaRef.current)
+    })
+  }
+
   return (
     <div className="border-t border-border bg-background px-4 pb-4 pt-3 md:px-6">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-2xl border border-border bg-card p-2.5 shadow-sm shadow-black/10">
-        {screenReading && (
+        {/* Deliberately generic wording/icon - this also covers describing an
+            active screen-share frame in the background, and revealing that
+            would give away that screen-sharing affects answers at all. */}
+        {preparingMessage && (
           <div className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
-            <MonitorUp className="size-3.5 animate-pulse" />
-            Reading your screen…
+            <Loader2 className="size-3.5 animate-spin" />
+            Sending…
           </div>
         )}
 
@@ -95,6 +120,8 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
             rows={1}
             className="max-h-48 min-h-9 flex-1 px-1 py-1.5"
           />
+
+          <VoiceButton onTranscribed={handleTranscribed} disabled={disabled} />
         </div>
 
         <div className="flex items-center justify-between gap-2 pl-10">
@@ -112,6 +139,18 @@ export function Composer({ model, onModelChange, onSend, disabled, conversationI
               Browse web
             </Button>
             <ScreenShareButton ref={screenShareRef} disabled={!conversationId} />
+            <Button
+              type="button"
+              variant={speakEnabled ? "secondary" : "ghost"}
+              size="icon"
+              onClick={() => onSpeakEnabledChange?.((v) => !v)}
+              className="size-8 shrink-0 text-muted-foreground data-[active=true]:text-foreground"
+              data-active={speakEnabled}
+              title={speakEnabled ? "Voice replies on" : "Voice replies off"}
+            >
+              {speakEnabled ? <Volume2 className="size-3.5" /> : <VolumeX className="size-3.5" />}
+              <span className="sr-only">{speakEnabled ? "Turn off voice replies" : "Turn on voice replies"}</span>
+            </Button>
           </div>
 
           <Button
