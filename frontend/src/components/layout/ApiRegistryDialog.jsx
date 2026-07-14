@@ -70,6 +70,7 @@ function ParamsEditor({ params, onChange }) {
           >
             <option value="query">query</option>
             <option value="path">path</option>
+            <option value="body">body</option>
           </select>
           <label className="flex items-center gap-1 text-xs text-muted-foreground">
             <input
@@ -110,6 +111,14 @@ function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActi
       />
       <Input placeholder="Base URL (https://...)" value={draft.baseUrl} onChange={set("baseUrl")} className="h-8 text-sm" />
       <Input placeholder="Path (e.g. /v1/search or /users/{id})" value={draft.path} onChange={set("path")} className="h-8 text-sm" />
+      <select
+        className="h-8 w-fit rounded-md border border-border bg-background px-2 text-xs text-foreground"
+        value={draft.method || "GET"}
+        onChange={set("method")}
+      >
+        <option value="GET">GET</option>
+        <option value="POST">POST</option>
+      </select>
       <ParamsEditor params={draft.params || []} onChange={(params) => onChange({ ...draft, params })} />
       <div className="flex items-center gap-1.5">
         <select
@@ -120,21 +129,24 @@ function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActi
           <option value="none">No auth</option>
           <option value="header">Header auth</option>
           <option value="query">Query param auth</option>
+          <option value="bearer">Bearer Token</option>
         </select>
         {draft.authType !== "none" && (
           <>
             <Input
-              placeholder="Env var (e.g. BRAVE_API_KEY)"
+              placeholder="Env var (e.g. TAVILY_API_KEY)"
               value={draft.authEnvVar || ""}
               onChange={set("authEnvVar")}
               className="h-8 flex-1 text-xs"
             />
-            <Input
-              placeholder="Key name (e.g. X-Subscription-Token)"
-              value={draft.authKeyName || ""}
-              onChange={set("authKeyName")}
-              className="h-8 flex-1 text-xs"
-            />
+            {draft.authType !== "bearer" && (
+              <Input
+                placeholder="Key name (e.g. X-Subscription-Token)"
+                value={draft.authKeyName || ""}
+                onChange={set("authKeyName")}
+                className="h-8 flex-1 text-xs"
+              />
+            )}
           </>
         )}
       </div>

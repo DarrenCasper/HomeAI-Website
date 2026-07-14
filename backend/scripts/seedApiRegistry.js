@@ -17,17 +17,18 @@ const ENTRIES = [
     authType: 'none'
   },
   {
-    name: 'brave_web_search',
-    description: 'General-purpose live web search - use for current events or anything not covered by a more specific tool.',
-    baseUrl: 'https://api.search.brave.com',
-    path: '/res/v1/web/search',
+    name: 'tavily_web_search',
+    description: 'Search the web for current information. Prefer this over browse_web for general lookups - only use browse_web if you need to click into a result, fill a form, or navigate multiple pages.',
+    baseUrl: 'https://api.tavily.com',
+    path: '/search',
+    method: 'POST',
     params: [
-      { name: 'q', in: 'query', required: true, description: 'Search query' },
-      { name: 'count', in: 'query', required: false, description: 'Number of results to return' }
+      { name: 'query', in: 'body', required: true, description: 'The search query' },
+      { name: 'max_results', in: 'body', required: false, description: 'Number of results to return, defaults to 5 if omitted' },
+      { name: 'search_depth', in: 'body', required: false, description: '"basic" (1 credit) or "advanced" (2 credits) - default to basic unless deeper results are clearly needed, to conserve the free tier\'s monthly credits' }
     ],
-    authType: 'header',
-    authKeyName: 'X-Subscription-Token',
-    authEnvVar: 'BRAVE_API_KEY'
+    authType: 'bearer',
+    authEnvVar: 'TAVILY_API_KEY'
   },
   {
     name: 'currency_convert',
@@ -76,11 +77,17 @@ async function main() {
   await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
   console.log('[seed] connected to Mongo');
 
+  // brave_web_search is being replaced by tavily_web_search, not kept
+  // alongside it - deleteOne (rather than leaving it upserted) so
+  // re-running this script actually removes the old entry.
+  const { deletedCount } = await ApiRegistry.deleteOne({ name: 'brave_web_search' });
+  if (deletedCount > 0) console.log('[seed] removed brave_web_search');
+
   for (const entry of ENTRIES) {
     await ApiRegistry.updateOne(
       { name: entry.name },
       {
-        $set: { ...entry, method: 'GET', enabled: true, status: 'approved', proposedBy: 'user' }
+        $set: { ...entry, method: entry.method || 'GET', enabled: true, status: 'approved', proposedBy: 'user' }
       },
       { upsert: true, setDefaultsOnInsert: true }
     );

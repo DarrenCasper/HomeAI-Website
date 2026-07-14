@@ -11,17 +11,7 @@ async function getEnabledApis() {
   return ApiRegistry.find({ enabled: true, status: 'approved' }, 'name description').lean();
 }
 
-function buildUrl(api, params) {
-  const pathParamDefs = api.params.filter((p) => p.in === 'path');
-  const queryParamDefs = api.params.filter((p) => p.in === 'query');
-
-  for (const def of pathParamDefs.concat(queryParamDefs)) {
-    const value = params[def.name];
-    if (def.required && (value === undefined || value === null || value === '')) {
-      throw new Error(`Missing required param "${def.name}" for API "${api.name}"`);
-    }
-  }
-
+function buildUrl(api, params, queryParamDefs, pathParamDefs) {
   let path = api.path;
   for (const def of pathParamDefs) {
     if (params[def.name] !== undefined && params[def.name] !== null) {
@@ -55,6 +45,8 @@ function applyAuth(api, url, headers) {
 
   if (api.authType === 'header') {
     headers[api.authKeyName || 'Authorization'] = key;
+  } else if (api.authType === 'bearer') {
+    headers['Authorization'] = `Bearer ${key}`;
   } else if (api.authType === 'query') {
     url.searchParams.set(api.authKeyName || 'api_key', key);
   }
@@ -72,13 +64,42 @@ async function callRegisteredApi(apiName, params) {
   if (!api.baseUrl.startsWith('https://')) throw new Error(`API "${apiName}" has an insecure baseUrl - refusing to call it`);
 
   const safeParams = params && typeof params === 'object' ? params : {};
-  const url = buildUrl(api, safeParams);
+  const method = api.method || 'GET';
+  const pathParamDefs = api.params.filter((p) => p.in === 'path');
+  const queryParamDefs = api.params.filter((p) => p.in === 'query');
+  const bodyParamDefs = api.params.filter((p) => p.in === 'body');
+
+  for (const def of pathParamDefs.concat(queryParamDefs, bodyParamDefs)) {
+    const value = safeParams[def.name];
+    if (def.required && (value === undefined || value === null || value === '')) {
+      throw new Error(`Missing required param "${def.name}" for API "${api.name}"`);
+    }
+  }
+
+  if (method === 'GET' && bodyParamDefs.length > 0) {
+    console.warn(`[apiRegistry] "${apiName}" is registered as GET but has body-type params - ignoring them (misconfigured registry entry)`);
+  }
+
+  const url = buildUrl(api, safeParams, queryParamDefs, pathParamDefs);
   const headers = {};
   applyAuth(api, url, headers);
 
+  const fetchOptions = { method, headers };
+  if (method === 'POST') {
+    const bodyPayload = {};
+    for (const def of bodyParamDefs) {
+      const value = safeParams[def.name];
+      if (value !== undefined && value !== null && value !== '') {
+        bodyPayload[def.name] = value;
+      }
+    }
+    headers['Content-Type'] = 'application/json';
+    fetchOptions.body = JSON.stringify(bodyPayload);
+  }
+
   let response;
   try {
-    response = await fetch(url.toString(), { method: api.method || 'GET', headers });
+    response = await fetch(url.toString(), fetchOptions);
   } catch (err) {
     throw new Error(`Could not reach "${apiName}": ${err.message}`);
   }
