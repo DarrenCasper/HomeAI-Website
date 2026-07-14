@@ -11,6 +11,7 @@ const visionRouter = require('./routes/vision');
 const usageRouter = require('./routes/usage');
 const documentsRouter = require('./routes/documents');
 const voiceRouter = require('./routes/voice');
+const adminApisRouter = require('./routes/adminApis');
 
 const app = express();
 
@@ -67,6 +68,7 @@ app.use('/api/projects', projectsRouter);
 app.use('/api/vision', visionRouter);
 app.use('/api/documents', documentsRouter);
 app.use('/api/voice', voiceRouter);
+app.use('/api/admin/apis', adminApisRouter);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });

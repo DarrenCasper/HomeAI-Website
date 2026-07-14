@@ -247,3 +247,41 @@ export function speakText(text) {
     body: JSON.stringify({ text }),
   })
 }
+
+// GET /api/admin/apis -> [ApiRegistry], approved entries regardless of
+// their enabled on/off toggle
+export function getApis() {
+  return request("/admin/apis")
+}
+
+// GET /api/admin/apis/pending -> [ApiRegistry], status: "pending"
+export function getPendingApis() {
+  return request("/admin/apis/pending")
+}
+
+// POST /api/admin/apis { name, description, baseUrl, path, method?, params?, authType?, authEnvVar?, authKeyName? }
+// -> ApiRegistry. Manual entries save straight to status: "approved" - the
+// human filling out this form IS the approval.
+export function createApi(draft) {
+  return request("/admin/apis", { method: "POST", body: JSON.stringify(draft) })
+}
+
+// PATCH /api/admin/apis/:id { ...any editable field } -> ApiRegistry
+export function updateApi(id, updates) {
+  return request(`/admin/apis/${id}`, { method: "PATCH", body: JSON.stringify(updates) })
+}
+
+// POST /api/admin/apis/:id/approve { ...optional field overrides } -> ApiRegistry
+export function approveApi(id, overrides) {
+  return request(`/admin/apis/${id}/approve`, { method: "POST", body: JSON.stringify(overrides || {}) })
+}
+
+// POST /api/admin/apis/:id/reject -> ApiRegistry
+export function rejectApi(id) {
+  return request(`/admin/apis/${id}/reject`, { method: "POST" })
+}
+
+// DELETE /api/admin/apis/:id -> 204
+export function deleteApi(id) {
+  return request(`/admin/apis/${id}`, { method: "DELETE" })
+}

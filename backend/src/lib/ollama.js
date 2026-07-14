@@ -1,4 +1,5 @@
 const { getKeepAlive, supportsThinking } = require('../utils/modelMode');
+const { buildApiRegistryTool } = require('./apiRegistry');
 
 const PRIMARY_OLLAMA_URL = process.env.OLLAMA_URL || 'http://100.x.x.x:11434'; // Nitro 7's Tailscale IP - set the real one via env
 const FALLBACK_OLLAMA_URL = process.env.OLLAMA_FALLBACK_URL || 'http://127.0.0.1:11434'; // this machine's own Ollama
@@ -50,42 +51,136 @@ async function resolveOllamaTarget(model) {
   return { url: FALLBACK_OLLAMA_URL, model: FALLBACK_MODEL_MAP[model] || model };
 }
 
-// Tool schemas handed to Ollama on the non-streaming "decide" call in
-// routes/chat.js so tool-capable models can request a live web lookup or a
-// search over the user's own uploaded documents instead of answering from
-// training data alone.
-const WEB_TOOLS_SCHEMA = [
-  {
-    type: 'function',
-    function: {
-      name: 'browse_web',
-      description:
-        'Browse the live web to answer questions about current events, prices, or anything not in your training data. Use only when the question genuinely requires up-to-date or external information.',
-      parameters: {
-        type: 'object',
-        properties: {
-          task: { type: 'string', description: 'A clear, specific instruction describing what to find or do on the web.' }
-        },
-        required: ['task']
+// Tools handed to Ollama on the non-streaming "decide" call in
+// routes/chat.js, composed fresh per request (not a static list) since
+// call_external_api's own description embeds the current registry index -
+// see buildApiRegistryTool() in lib/apiRegistry.js. Priority order, baked
+// into the descriptions below so the model sees it too, not just this
+// comment: search_documents (the user's own notes) > call_external_api
+// (structured, fast, no scraping risk) > fetch_page (cheap, but only for a
+// URL you already have) > browse_web (genuine last resort - actual
+// clicking/forms/multi-step interaction). get_weather sits outside that
+// chain as a dedicated tool - it needs two chained calls (geocode then
+// forecast), which the generic single-endpoint registry caller doesn't
+// support, so it can't be a call_external_api registry entry.
+async function buildToolsForRequest() {
+  const tools = [
+    {
+      type: 'function',
+      function: {
+        name: 'search_documents',
+        description:
+          "Search the user's own uploaded documents/notes. Check this FIRST when a question might be answered by something the user has previously uploaded - it's their own private data, not available anywhere else.",
+        parameters: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'What to search for in the uploaded documents.' }
+          },
+          required: ['query']
+        }
+      }
+    },
+    await buildApiRegistryTool(),
+    {
+      type: 'function',
+      function: {
+        name: 'fetch_page',
+        description:
+          'Fetch and read a specific, already-known URL. Cheap and fast - use when you already have the exact URL and no interaction is required. Prefer call_external_api when a structured API covers the same information.',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'The exact URL to fetch.' }
+          },
+          required: ['url']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_weather',
+        description:
+          'Current weather and short forecast for a location. Needs two chained lookups (geocoding then forecast), which is why this stays a dedicated tool instead of a call_external_api registry entry.',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string', description: 'City or place name.' }
+          },
+          required: ['location']
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'browse_web',
+        description:
+          'Drive a real browser to search, click, fill forms, or navigate multiple pages. Last resort - only when the task genuinely requires interaction that search_documents, call_external_api, fetch_page, and get_weather all cannot do.',
+        parameters: {
+          type: 'object',
+          properties: {
+            task: { type: 'string', description: 'A clear, specific instruction describing what to find or do on the web.' }
+          },
+          required: ['task']
+        }
       }
     }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_documents',
-      description:
-        "Search the user's own uploaded documents/notes for relevant information. Use this when the question might be answered by something the user has previously uploaded, not the live web.",
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'What to search for in the uploaded documents.' }
-        },
-        required: ['query']
+  ];
+
+  if (process.env.ALLOW_AI_API_PROPOSALS === 'true') {
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'discover_api_schema',
+        description:
+          'Try to find a structured, machine-readable schema (OpenAPI/Swagger spec) for an API before reading its docs page. Always use this FIRST when researching a new API to propose - only fall back to browse_web on the actual documentation website if this returns found: false, and expect that fallback to sometimes fail (doc sites are often protected against scraping) - if it does, tell the user you could not reliably determine the API schema rather than guessing.',
+        parameters: {
+          type: 'object',
+          properties: {
+            domain_or_name: { type: 'string', description: 'The API\'s domain or common name, e.g. "jikan.moe" or "OpenWeather".' }
+          },
+          required: ['domain_or_name']
+        }
       }
-    }
+    });
+    tools.push({
+      type: 'function',
+      function: {
+        name: 'propose_api',
+        description:
+          "After reading an API's documentation via discover_api_schema, browse_web, or fetch_page, propose adding it to the registry for future use. Use discover_api_schema first if you haven't already - if it found a real spec, base this proposal on that rather than your own reading of a docs page. Creates a pending entry a human must approve - does not make the API usable immediately. Only propose APIs you have actually read documentation for in this conversation.",
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            description: { type: 'string' },
+            baseUrl: { type: 'string' },
+            path: { type: 'string' },
+            method: { type: 'string', enum: ['GET'] },
+            params: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  in: { type: 'string', enum: ['query', 'path'] },
+                  required: { type: 'boolean' },
+                  description: { type: 'string' }
+                }
+              }
+            },
+            authType: { type: 'string', enum: ['none', 'header', 'query'] },
+            authKeyName: { type: 'string' }
+          },
+          required: ['name', 'description', 'baseUrl', 'path', 'params', 'authType']
+        }
+      }
+    });
   }
-];
+
+  return tools;
+}
 
 // Calls Ollama's /api/chat with streaming disabled so we get one JSON object
 // back instead of newline-delimited chunks. Returns the full message object
@@ -245,4 +340,4 @@ async function ollamaVisionChat(model, prompt, base64Image) {
   return data.message.content;
 }
 
-module.exports = { ollamaChat, ollamaChatStream, ollamaVisionChat, WEB_TOOLS_SCHEMA };
+module.exports = { ollamaChat, ollamaChatStream, ollamaVisionChat, buildToolsForRequest };
