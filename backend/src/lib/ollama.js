@@ -1,5 +1,5 @@
 const { getKeepAlive, supportsThinking } = require('../utils/modelMode');
-const { buildApiRegistryTool } = require('./apiRegistry');
+const { buildCategorySelectorTool } = require('./apiRegistry');
 
 const PRIMARY_OLLAMA_URL = process.env.OLLAMA_URL || 'http://100.x.x.x:11434'; // Nitro 7's Tailscale IP - set the real one via env
 const FALLBACK_OLLAMA_URL = process.env.OLLAMA_FALLBACK_URL || 'http://127.0.0.1:11434'; // this machine's own Ollama
@@ -53,16 +53,21 @@ async function resolveOllamaTarget(model) {
 
 // Tools handed to Ollama on the non-streaming "decide" call in
 // routes/chat.js, composed fresh per request (not a static list) since
-// call_external_api's own description embeds the current registry index -
-// see buildApiRegistryTool() in lib/apiRegistry.js. Priority order, baked
-// into the descriptions below so the model sees it too, not just this
-// comment: search_documents (the user's own notes) > call_external_api
-// (structured, fast, no scraping risk) > fetch_page (cheap, but only for a
-// URL you already have) > browse_web (genuine last resort - actual
-// clicking/forms/multi-step interaction). get_weather sits outside that
-// chain as a dedicated tool - it needs two chained calls (geocode then
-// forecast), which the generic single-endpoint registry caller doesn't
-// support, so it can't be a call_external_api registry entry.
+// select_api_category's own description embeds the current category index
+// - see buildCategorySelectorTool() in lib/apiRegistry.js. The registry
+// grew past ~200 entries, so the full call_external_api index no longer
+// lives in this first-pass tool list at all - picking a category here is
+// step one of a two-step lookup routes/chat.js's resolveTools() runs, with
+// the actual per-category call_external_api tool only built and offered
+// on a second, narrower call once a category's been picked. Priority
+// order, baked into the descriptions below so the model sees it too, not
+// just this comment: search_documents (the user's own notes) >
+// select_api_category (structured, fast, no scraping risk) > fetch_page
+// (cheap, but only for a URL you already have) > browse_web (genuine last
+// resort - actual clicking/forms/multi-step interaction). get_weather sits
+// outside that chain as a dedicated tool - it needs two chained calls
+// (geocode then forecast), which the generic single-endpoint registry
+// caller doesn't support, so it can't be a call_external_api registry entry.
 async function buildToolsForRequest() {
   const tools = [
     {
@@ -80,13 +85,13 @@ async function buildToolsForRequest() {
         }
       }
     },
-    await buildApiRegistryTool(),
+    await buildCategorySelectorTool(),
     {
       type: 'function',
       function: {
         name: 'fetch_page',
         description:
-          'Fetch and read a specific, already-known URL. Cheap and fast - use when you already have the exact URL and no interaction is required. Prefer call_external_api when a structured API covers the same information.',
+          'Fetch and read a specific, already-known URL. Cheap and fast - use when you already have the exact URL and no interaction is required. Prefer select_api_category when a structured API covers the same information.',
         parameters: {
           type: 'object',
           properties: {
@@ -101,7 +106,7 @@ async function buildToolsForRequest() {
       function: {
         name: 'get_weather',
         description:
-          'Current weather and short forecast for a location. Needs two chained lookups (geocoding then forecast), which is why this stays a dedicated tool instead of a call_external_api registry entry.',
+          'Current weather and short forecast for a location. Needs two chained lookups (geocoding then forecast), which is why this stays a dedicated tool instead of a registry entry reachable via select_api_category.',
         parameters: {
           type: 'object',
           properties: {
@@ -116,7 +121,7 @@ async function buildToolsForRequest() {
       function: {
         name: 'browse_web',
         description:
-          'Drive a real browser to search, click, fill forms, or navigate multiple pages. Last resort - only when the task genuinely requires interaction that search_documents, call_external_api, fetch_page, and get_weather all cannot do.',
+          'Drive a real browser to search, click, fill forms, or navigate multiple pages. Last resort - only when the task genuinely requires interaction that search_documents, select_api_category, fetch_page, and get_weather all cannot do.',
         parameters: {
           type: 'object',
           properties: {

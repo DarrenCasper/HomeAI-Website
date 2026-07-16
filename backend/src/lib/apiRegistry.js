@@ -120,12 +120,63 @@ async function callRegisteredApi(apiName, params) {
   return resultText.slice(0, MAX_RESPONSE_CHARS);
 }
 
-// Rebuilt per-request (see routes/chat.js's resolveTools) rather than
-// cached at startup - the registry can grow (manual additions, approved
-// AI proposals) without a redeploy, and this is the only thing that needs
-// to reflect that immediately.
-async function buildApiRegistryTool() {
-  const apis = await getEnabledApis();
+// Approved+enabled entries grouped by category, most-populated first - the
+// index the model sees on its first pass now (buildCategorySelectorTool
+// below), instead of every individual API. Entries with no category set
+// group under "Uncategorized".
+async function getCategorySummary() {
+  const apis = await ApiRegistry.find({ enabled: true, status: 'approved' }, 'category').lean();
+  const counts = new Map();
+  for (const api of apis) {
+    const key = api.category || 'Uncategorized';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+// Same shape as getEnabledApis(), scoped to one category - pass category:
+// null for "Uncategorized" (entries with no category set), matching
+// getCategorySummary's grouping above.
+async function getApisInCategory(category) {
+  return ApiRegistry.find({ enabled: true, status: 'approved', category }, 'name description').lean();
+}
+
+// First-pass tool (see lib/ollama.js's buildToolsForRequest): a ~20-line
+// category index instead of every individual API description, so the
+// model isn't drowning in a 200-entry list on every single request. Once
+// it picks a category, routes/chat.js makes a second, narrower call with
+// buildApiToolForCategory() below.
+async function buildCategorySelectorTool() {
+  const summary = await getCategorySummary();
+  const index = summary.length
+    ? summary.map((s) => `- ${s.category} (${s.count} APIs)`).join('\n')
+    : '(no APIs currently registered)';
+
+  return {
+    type: 'function',
+    function: {
+      name: 'select_api_category',
+      description: `If the question might be answered by a registered structured API, pick the ONE category most likely to contain it - you'll then be shown the specific APIs in that category to choose from. Categories:\n${index}`,
+      parameters: {
+        type: 'object',
+        properties: {
+          category: { type: 'string', description: 'Exact category name from the list above.' }
+        },
+        required: ['category']
+      }
+    }
+  };
+}
+
+// Second-step tool, only built and offered (see routes/chat.js) after
+// select_api_category has narrowed things down to one category - same
+// shape as the old flat buildApiRegistryTool(), still named
+// call_external_api and dispatched the same way, just scoped to a handful
+// of APIs instead of the whole registry.
+async function buildApiToolForCategory(category) {
+  const apis = await getApisInCategory(category);
   const index = apis.length ? apis.map((a) => `- ${a.name}: ${a.description}`).join('\n') : '(no APIs currently registered)';
 
   return {
@@ -187,8 +238,11 @@ async function bulkApproveEligible() {
 
 module.exports = {
   getEnabledApis,
+  getCategorySummary,
+  getApisInCategory,
   callRegisteredApi,
-  buildApiRegistryTool,
+  buildCategorySelectorTool,
+  buildApiToolForCategory,
   isBulkApproveEligible,
   bulkApproveEligible
 };
