@@ -285,3 +285,8 @@ export function rejectApi(id) {
 export function deleteApi(id) {
   return request(`/admin/apis/${id}`, { method: "DELETE" })
 }
+
+// POST /api/admin/apis/bulk-approve-eligible -> { approvedCount, approvedNames, skippedCount }
+export function bulkApproveEligibleApis() {
+  return request("/admin/apis/bulk-approve-eligible", { method: "POST" })
+}

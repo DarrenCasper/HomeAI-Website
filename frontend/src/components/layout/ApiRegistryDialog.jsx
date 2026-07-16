@@ -3,6 +3,7 @@ import { Loader2, Plus, X } from "lucide-react"
 
 import {
   approveApi,
+  bulkApproveEligibleApis,
   createApi,
   deleteApi,
   getApis,
@@ -23,6 +24,121 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+
+// No date library in this project for something this small - just enough
+// granularity to distinguish "just checked" from "this is stale."
+function formatRelativeTime(dateStr) {
+  if (!dateStr) return null
+  const minutes = Math.round((Date.now() - new Date(dateStr).getTime()) / 60000)
+  if (minutes < 1) return "just now"
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.round(hours / 24)}d ago`
+}
+
+// lastCheckOk is null until the scheduled health check (backend/src/lib/
+// apiHealthCheck.js) has run at least once for this entry.
+function HealthStatus({ api }) {
+  if (api.lastCheckOk === null || api.lastCheckOk === undefined) {
+    return <p className="text-[11px] text-muted-foreground">Not checked yet</p>
+  }
+  const timeAgo = formatRelativeTime(api.lastCheckedAt)
+  return (
+    <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+      <span
+        className={`size-1.5 shrink-0 rounded-full ${api.lastCheckOk ? "bg-emerald-500" : "bg-destructive"}`}
+        aria-hidden="true"
+      />
+      {api.lastCheckOk ? "Healthy" : "Failing"}
+      {timeAgo && ` · checked ${timeAgo}`}
+    </p>
+  )
+}
+
+const PAGE_SIZE = 15
+
+// Compact page-number set: first, last, current, and one on each side of
+// current - collapsed further into "1 ... 4 5 6 ... 23" by the ellipsis
+// logic in Pagination below, rather than one button per page.
+function getPageNumbers(current, total) {
+  const pages = new Set([1, total, current - 1, current, current + 1])
+  return [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b)
+}
+
+function Pagination({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null
+  const numbers = getPageNumbers(page, totalPages)
+
+  const items = []
+  let prev = 0
+  for (const n of numbers) {
+    if (n - prev > 1) items.push({ ellipsis: true, key: `ellipsis-${n}` })
+    items.push({ ellipsis: false, page: n, key: n })
+    prev = n
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-1 pt-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={() => onChange(page - 1)}
+        disabled={page <= 1}
+      >
+        Previous
+      </Button>
+      {items.map((item) =>
+        item.ellipsis ? (
+          <span key={item.key} className="px-1 text-xs text-muted-foreground">
+            …
+          </span>
+        ) : (
+          <Button
+            key={item.key}
+            type="button"
+            variant={item.page === page ? "secondary" : "ghost"}
+            size="sm"
+            className="h-7 w-7 px-0 text-xs"
+            onClick={() => onChange(item.page)}
+          >
+            {item.page}
+          </Button>
+        )
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        onClick={() => onChange(page + 1)}
+        disabled={page >= totalPages}
+      >
+        Next
+      </Button>
+    </div>
+  )
+}
+
+function CategoryFilter({ categories, value, onChange }) {
+  if (categories.length === 0) return null
+  return (
+    <select
+      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">All Categories</option>
+      {categories.map((c) => (
+        <option key={c} value={c}>
+          {c}
+        </option>
+      ))}
+    </select>
+  )
+}
 
 const EMPTY_DRAFT = {
   name: "",
@@ -102,6 +218,12 @@ function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActi
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      {(draft.category || draft.importNotes) && (
+        <div className="rounded-md bg-muted/50 p-2 text-[11px] text-muted-foreground">
+          {draft.category && <p className="mb-1 font-medium text-foreground">{draft.category}</p>}
+          {draft.importNotes && <p className="whitespace-pre-wrap">{draft.importNotes}</p>}
+        </div>
+      )}
       <Input placeholder="Name (e.g. jikan_anime_search)" value={draft.name} onChange={set("name")} className="h-8 text-sm" />
       <Textarea
         placeholder="Description - what this API does and when to use it"
@@ -170,6 +292,12 @@ export function ApiRegistryDialog({ trigger }) {
   const [addingNew, setAddingNew] = useState(false)
   const [pendingDrafts, setPendingDrafts] = useState({})
   const [busyId, setBusyId] = useState(null)
+  const [pendingCategory, setPendingCategory] = useState("")
+  const [apisCategory, setApisCategory] = useState("")
+  const [pendingPage, setPendingPage] = useState(1)
+  const [apisPage, setApisPage] = useState(1)
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const [bulkApproveResult, setBulkApproveResult] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -186,6 +314,13 @@ export function ApiRegistryDialog({ trigger }) {
   useEffect(() => {
     if (open) load()
   }, [open])
+
+  // Reset to page 1 whenever the list can shrink out from under the
+  // current page (an approve/reject/delete/bulk-approve, or a category
+  // filter change) - keyed off .length rather than the array reference so
+  // an in-place edit (e.g. toggling enabled) doesn't bounce you back.
+  useEffect(() => setPendingPage(1), [pending.length, pendingCategory])
+  useEffect(() => setApisPage(1), [apis.length, apisCategory])
 
   const handleAdd = async () => {
     if (!newDraft.name.trim() || !newDraft.description.trim() || !newDraft.baseUrl.trim() || !newDraft.path.trim()) {
@@ -252,6 +387,31 @@ export function ApiRegistryDialog({ trigger }) {
     }
   }
 
+  const handleBulkApprove = async () => {
+    setBulkApproving(true)
+    setBulkApproveResult(null)
+    try {
+      const result = await bulkApproveEligibleApis()
+      setBulkApproveResult(result)
+      load()
+    } catch (err) {
+      toast({ variant: "destructive", title: "Bulk approve failed", description: err.message })
+    } finally {
+      setBulkApproving(false)
+    }
+  }
+
+  const pendingCategories = [...new Set(pending.map((p) => p.category).filter(Boolean))].sort()
+  const apisCategories = [...new Set(apis.map((a) => a.category).filter(Boolean))].sort()
+
+  const filteredPending = pendingCategory ? pending.filter((p) => p.category === pendingCategory) : pending
+  const filteredApis = apisCategory ? apis.filter((a) => a.category === apisCategory) : apis
+
+  const pendingTotalPages = Math.max(1, Math.ceil(filteredPending.length / PAGE_SIZE))
+  const apisTotalPages = Math.max(1, Math.ceil(filteredApis.length / PAGE_SIZE))
+  const pendingPageItems = filteredPending.slice((pendingPage - 1) * PAGE_SIZE, pendingPage * PAGE_SIZE)
+  const apisPageItems = filteredApis.slice((apisPage - 1) * PAGE_SIZE, apisPage * PAGE_SIZE)
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
@@ -266,8 +426,41 @@ export function ApiRegistryDialog({ trigger }) {
         <div className="flex max-h-[65vh] flex-col gap-4 overflow-y-auto pr-1">
           {pending.length > 0 && (
             <div className="flex flex-col gap-2">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Pending approval</p>
-              {pending.map((p) => (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Pending approval ({filteredPending.length})
+                </p>
+                <CategoryFilter categories={pendingCategories} value={pendingCategory} onChange={setPendingCategory} />
+              </div>
+
+              <div className="flex flex-col items-start gap-1 rounded-md border border-dashed border-border p-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  className="gap-1.5 text-xs"
+                  onClick={handleBulkApprove}
+                  disabled={bulkApproving}
+                >
+                  {bulkApproving && <Loader2 className="size-3.5 animate-spin" />}
+                  Bulk Approve Eligible
+                </Button>
+                <p className="text-[11px] text-muted-foreground">
+                  Approves entries that need no API key and no ID in their path - the rest need a quick look first.
+                </p>
+                {bulkApproveResult && (
+                  <p className="text-[11px] font-medium text-foreground">
+                    Approved {bulkApproveResult.approvedCount} entries. {bulkApproveResult.skippedCount} still need
+                    auth setup or a path parameter filled in - still in the queue below.
+                  </p>
+                )}
+              </div>
+
+              {filteredPending.length === 0 && (
+                <p className="px-1 py-2 text-center text-xs text-muted-foreground">No pending entries in this category</p>
+              )}
+
+              {pendingPageItems.map((p) => (
                 <ApiForm
                   key={p.id}
                   draft={pendingDrafts[p.id] || p}
@@ -289,21 +482,40 @@ export function ApiRegistryDialog({ trigger }) {
                   }
                 />
               ))}
+
+              <Pagination page={pendingPage} totalPages={pendingTotalPages} onChange={setPendingPage} />
             </div>
           )}
 
           <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Registered APIs</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Registered APIs ({filteredApis.length})
+              </p>
+              <CategoryFilter categories={apisCategories} value={apisCategory} onChange={setApisCategory} />
+            </div>
             {loading && Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-md" />)}
             {!loading && apis.length === 0 && (
               <p className="px-1 py-2 text-center text-xs text-muted-foreground">No APIs registered yet</p>
             )}
+            {!loading && apis.length > 0 && filteredApis.length === 0 && (
+              <p className="px-1 py-2 text-center text-xs text-muted-foreground">No registered APIs in this category</p>
+            )}
             {!loading &&
-              apis.map((api) => (
+              apisPageItems.map((api) => (
                 <div key={api.id} className="flex items-center gap-2 rounded-md border border-border px-2.5 py-2 text-sm">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium text-foreground">{api.name}</p>
+                    <p className="truncate font-medium text-foreground">
+                      {api.name}
+                      {api.category && <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">{api.category}</span>}
+                    </p>
                     <p className="truncate text-[11px] text-muted-foreground">{api.description}</p>
+                    {!api.skipHealthCheck && <HealthStatus api={api} />}
+                    {api.disabledReason === "health_check" && (
+                      <p className="text-[11px] font-medium text-amber-600 dark:text-amber-500">
+                        Auto-disabled: failing health checks
+                      </p>
+                    )}
                   </div>
                   <Button
                     type="button"
@@ -328,6 +540,7 @@ export function ApiRegistryDialog({ trigger }) {
                   </Button>
                 </div>
               ))}
+            {!loading && <Pagination page={apisPage} totalPages={apisTotalPages} onChange={setApisPage} />}
           </div>
 
           <div className="flex flex-col gap-2">

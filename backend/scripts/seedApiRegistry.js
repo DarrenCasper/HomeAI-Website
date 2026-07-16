@@ -14,7 +14,8 @@ const ENTRIES = [
     baseUrl: 'https://api.jikan.moe/v4',
     path: '/anime',
     params: [{ name: 'q', in: 'query', required: true, description: 'Anime title to search for' }],
-    authType: 'none'
+    authType: 'none',
+    healthCheckParams: { q: 'Naruto' }
   },
   {
     name: 'tavily_web_search',
@@ -39,7 +40,8 @@ const ENTRIES = [
       { name: 'base', in: 'query', required: true, description: 'Base currency code, e.g. USD' },
       { name: 'symbols', in: 'query', required: true, description: 'Comma-separated target currency codes, e.g. EUR,GBP' }
     ],
-    authType: 'none'
+    authType: 'none',
+    healthCheckParams: { base: 'USD', symbols: 'EUR' }
   },
   {
     name: 'crypto_price',
@@ -50,7 +52,8 @@ const ENTRIES = [
       { name: 'ids', in: 'query', required: true, description: 'Comma-separated CoinGecko coin ids, e.g. bitcoin,ethereum' },
       { name: 'vs_currencies', in: 'query', required: true, description: 'Comma-separated currency codes, e.g. usd,eur' }
     ],
-    authType: 'none'
+    authType: 'none',
+    healthCheckParams: { ids: 'bitcoin', vs_currencies: 'usd' }
   },
   {
     name: 'wiki_summary',
@@ -58,7 +61,8 @@ const ENTRIES = [
     baseUrl: 'https://en.wikipedia.org',
     path: '/api/rest_v1/page/summary/{topic}',
     params: [{ name: 'topic', in: 'path', required: true, description: 'Wikipedia article title' }],
-    authType: 'none'
+    authType: 'none',
+    healthCheckParams: { topic: 'Anime' }
   }
 
   // ip_geolocation intentionally omitted: its free tier is http-only

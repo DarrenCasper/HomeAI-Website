@@ -3,6 +3,7 @@ require('dotenv').config();
 const app = require('./app');
 const { connectMongo } = require('./db/mongo');
 const { pingPostgres } = require('./db/postgres');
+const { startScheduledJobs } = require('./lib/scheduler');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '127.0.0.1'; // only reachable via `tailscale serve`
@@ -10,6 +11,7 @@ const HOST = process.env.HOST || '127.0.0.1'; // only reachable via `tailscale s
 async function start() {
   // Mongo connects/reconnects in the background; don't block startup on it.
   connectMongo();
+  startScheduledJobs();
 
   try {
     await pingPostgres();

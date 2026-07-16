@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const ApiRegistry = require('../models/ApiRegistry');
+const { bulkApproveEligible } = require('../lib/apiRegistry');
 
 const EDITABLE_FIELDS = ['name', 'description', 'baseUrl', 'path', 'method', 'params', 'authType', 'authEnvVar', 'authKeyName'];
 
@@ -19,7 +20,15 @@ function toDto(doc) {
     enabled: doc.enabled,
     status: doc.status,
     proposedBy: doc.proposedBy,
-    createdAt: doc.createdAt
+    createdAt: doc.createdAt,
+    category: doc.category,
+    importNotes: doc.importNotes,
+    healthCheckParams: doc.healthCheckParams,
+    skipHealthCheck: doc.skipHealthCheck,
+    lastCheckedAt: doc.lastCheckedAt,
+    lastCheckOk: doc.lastCheckOk,
+    consecutiveFailures: doc.consecutiveFailures,
+    disabledReason: doc.disabledReason
   };
 }
 
@@ -91,11 +100,38 @@ router.get('/pending', async (req, res) => {
   }
 });
 
+// Approves every pending entry that needs neither auth setup nor a path
+// param filled in - see lib/apiRegistry.js's isBulkApproveEligible. Returns
+// names (not just a count) so the frontend can show exactly what happened
+// rather than a silent "done".
+router.post('/bulk-approve-eligible', async (req, res) => {
+  try {
+    const result = await bulkApproveEligible();
+    res.json(result);
+  } catch (err) {
+    console.error('[adminApis] bulk-approve-eligible failed:', err.message);
+    res.status(503).json({ error: 'API registry unavailable' });
+  }
+});
+
 router.patch('/:id', async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'Not found' });
 
   const updates = pickEditableFields(req.body);
-  if (req.body?.enabled !== undefined) updates.enabled = !!req.body.enabled;
+  if (req.body?.enabled !== undefined) {
+    updates.enabled = !!req.body.enabled;
+    if (updates.enabled) {
+      // A human re-enabling it (whether it was off manually or auto-disabled
+      // by a failing health check) gets a clean slate - otherwise a
+      // health-check-disabled entry whose underlying problem isn't actually
+      // fixed would just re-disable itself on the very next scheduled check,
+      // which would look like this toggle silently "not working."
+      updates.consecutiveFailures = 0;
+      updates.disabledReason = null;
+    } else {
+      updates.disabledReason = 'manual';
+    }
+  }
   if (updates.baseUrl !== undefined && !String(updates.baseUrl).startsWith('https://')) {
     return res.status(400).json({ error: 'baseUrl must start with https://' });
   }

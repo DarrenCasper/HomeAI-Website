@@ -145,4 +145,50 @@ async function buildApiRegistryTool() {
   };
 }
 
-module.exports = { getEnabledApis, callRegisteredApi, buildApiRegistryTool };
+// A pending entry is only safe to approve with no human review when it
+// needs no auth setup (nothing to configure) and has no {param} path
+// placeholder (nothing that would 404/error with params left empty) -
+// anything else needs a human to supply real values first.
+function isBulkApproveEligible(entry) {
+  const hasPathParam = /\{[^}]+\}/.test(entry.path || '');
+  return entry.authType === 'none' && !hasPathParam;
+}
+
+// Approves every pending entry that qualifies in one pass, leaving
+// anything needing auth setup or a path param untouched in the queue.
+async function bulkApproveEligible() {
+  const pending = await ApiRegistry.find({ status: 'pending' });
+
+  const approvedNames = [];
+  let skippedCount = 0;
+
+  for (const entry of pending) {
+    if (!isBulkApproveEligible(entry)) {
+      skippedCount++;
+      continue;
+    }
+
+    // The only param guidance that survives with params left empty - fold
+    // a short version into description so the tool index the model sees
+    // still carries it, even though there's nothing in the structured
+    // params array to tell the model what to pass.
+    const paramsMatch = entry.importNotes?.match(/^Params: (.+)$/m);
+    if (paramsMatch) {
+      entry.description = `${entry.description} (${paramsMatch[1]})`;
+    }
+
+    entry.status = 'approved';
+    await entry.save();
+    approvedNames.push(entry.name);
+  }
+
+  return { approvedCount: approvedNames.length, approvedNames, skippedCount };
+}
+
+module.exports = {
+  getEnabledApis,
+  callRegisteredApi,
+  buildApiRegistryTool,
+  isBulkApproveEligible,
+  bulkApproveEligible
+};
