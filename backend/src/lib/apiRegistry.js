@@ -60,10 +60,39 @@ function buildUrl(api, params, queryParamDefs, pathParamDefs) {
   const base = api.baseUrl.replace(/\/+$/, '');
   const url = new URL(base + (path.startsWith('/') ? path : `/${path}`));
 
-  for (const def of queryParamDefs) {
-    const value = params[def.name];
-    if (value !== undefined && value !== null && value !== '') {
-      url.searchParams.set(def.name, value);
+  if (queryParamDefs.length === 0) {
+    // Bulk-imported entries register with params: [] by design (the
+    // spreadsheet's params were free text, not a structured schema a human
+    // had translated yet - see scripts/seedApiRegistryFromExcel.js). With
+    // no defined query params, the strict per-def loop below would silently
+    // drop everything the AI actually sent, making an "approved" entry
+    // functionally useless despite calling successfully (no thrown error).
+    // This trusts the AI's own param names/values instead of a
+    // human-reviewed schema - acceptable specifically because the
+    // domain/endpoint itself already went through human approval
+    // (bulk-approve was a deliberate action), and a query param is much
+    // lower-risk to get wrong than something like auth header injection.
+    // Path-param substitution above stays strict/defined-only - bulk-approve
+    // already excludes anything with a {placeholder} in the path, so this
+    // gap doesn't apply there the same way.
+    const providedKeys = Object.keys(params || {});
+    for (const key of providedKeys) {
+      const value = params[key];
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, value);
+      }
+    }
+    if (providedKeys.length) {
+      console.log(
+        `[apiRegistry] "${api.name}" has no defined query params - passing AI-provided params through as-is: ${providedKeys.join(', ')}`
+      );
+    }
+  } else {
+    for (const def of queryParamDefs) {
+      const value = params[def.name];
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(def.name, value);
+      }
     }
   }
 
@@ -107,6 +136,14 @@ async function callRegisteredApi(apiName, params) {
   const queryParamDefs = api.params.filter((p) => p.in === 'query');
   const bodyParamDefs = api.params.filter((p) => p.in === 'body');
 
+  // When queryParamDefs is empty (every bulk-imported entry, see buildUrl()
+  // below) this loop already has nothing to check on the query side -
+  // concat'ing in an empty array is a no-op - so an unstructured entry's
+  // required-param check naturally reduces to whatever path/body params
+  // it DOES define, rather than blocking the AI's own query params from
+  // flowing through via buildUrl()'s fallback. Not a special case to add
+  // logic for, just worth this note so a future edit doesn't "fix" it by
+  // accident.
   for (const def of pathParamDefs.concat(queryParamDefs, bodyParamDefs)) {
     const value = safeParams[def.name];
     if (def.required && (value === undefined || value === null || value === '')) {

@@ -151,6 +151,74 @@ const EMPTY_DRAFT = {
   authType: "none",
   authEnvVar: "",
   authKeyName: "",
+  minIntervalMs: 350,
+  skipHealthCheck: false,
+  healthCheckParams: null,
+}
+
+// healthCheckParams is stored as a plain object ({ q: "Naruto" }), edited
+// here as a name/value list - same row-editor visual style as ParamsEditor
+// below, just name+value instead of the full name/in/required/description
+// shape a real call param needs.
+function pairsToParamsObject(pairs) {
+  const obj = {}
+  for (const [name, value] of pairs) {
+    if (name.trim()) obj[name.trim()] = value
+  }
+  return Object.keys(obj).length ? obj : null
+}
+
+function HealthCheckParamsEditor({ value, onChange }) {
+  const pairs = Object.entries(value || {})
+
+  const updatePair = (i, field, val) => {
+    const next = pairs.map((p) => [...p])
+    next[i] = field === "name" ? [val, next[i][1]] : [next[i][0], val]
+    onChange(pairsToParamsObject(next))
+  }
+  const removePair = (i) => onChange(pairsToParamsObject(pairs.filter((_, idx) => idx !== i)))
+  const addPair = () => onChange(pairsToParamsObject([...pairs, ["", ""]]))
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">Health check params</span>
+        <Button type="button" variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs" onClick={addPair}>
+          <Plus className="size-3" />
+          Add param
+        </Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Real values the scheduled health check calls this API with, e.g. q / Naruto. Leave empty to fall back to a
+        plain reachability check instead.
+      </p>
+      {pairs.length === 0 && <p className="text-[11px] text-muted-foreground">No health check params</p>}
+      {pairs.map(([name, val], i) => (
+        <div key={i} className="flex items-center gap-1">
+          <Input
+            className="h-7 flex-1 text-xs"
+            placeholder="name"
+            value={name}
+            onChange={(e) => updatePair(i, "name", e.target.value)}
+          />
+          <Input
+            className="h-7 flex-1 text-xs"
+            placeholder="value"
+            value={val}
+            onChange={(e) => updatePair(i, "value", e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => removePair(i)}
+            className="text-muted-foreground transition-colors hover:text-destructive"
+          >
+            <X className="size-3.5" />
+            <span className="sr-only">Remove param</span>
+          </button>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function ParamsEditor({ params, onChange }) {
@@ -211,18 +279,33 @@ function ParamsEditor({ params, onChange }) {
   )
 }
 
-// Same form for the "add new" section and each pending draft - a pending
-// entry is pre-filled from the AI's proposal but stays fully editable
-// before approval, not shown as raw JSON.
-function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActions }) {
+// Same form for the "add new" section, each pending draft, and (mode:
+// "edit") an existing registered entry opened via its row's Edit button -
+// a pending entry is pre-filled from the AI's proposal but stays fully
+// editable before approval, not shown as raw JSON.
+function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActions, mode = "add" }) {
   const set = (field) => (e) => onChange({ ...draft, [field]: e.target.value })
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      {mode === "edit" && (
+        <div className="flex flex-col gap-1 rounded-md bg-muted/50 p-2 text-[11px] text-muted-foreground">
+          {!draft.skipHealthCheck && <HealthStatus api={draft} />}
+          {draft.consecutiveFailures > 0 && <p>Consecutive failures: {draft.consecutiveFailures}</p>}
+          {draft.disabledReason && <p>Disabled reason: {draft.disabledReason}</p>}
+        </div>
+      )}
       {(draft.category || draft.importNotes) && (
         <div className="rounded-md bg-muted/50 p-2 text-[11px] text-muted-foreground">
           {draft.category && <p className="mb-1 font-medium text-foreground">{draft.category}</p>}
-          {draft.importNotes && <p className="whitespace-pre-wrap">{draft.importNotes}</p>}
+          {draft.importNotes && (
+            <>
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                Imported reference (from spreadsheet, not editable)
+              </p>
+              <p className="whitespace-pre-wrap">{draft.importNotes}</p>
+            </>
+          )}
         </div>
       )}
       <Input placeholder="Name (e.g. jikan_anime_search)" value={draft.name} onChange={set("name")} className="h-8 text-sm" />
@@ -273,6 +356,30 @@ function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActi
           </>
         )}
       </div>
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          Min interval (ms)
+          <Input
+            type="number"
+            min="0"
+            className="h-7 w-20 text-xs"
+            value={draft.minIntervalMs ?? 350}
+            onChange={(e) => onChange({ ...draft, minIntervalMs: Number(e.target.value) || 0 })}
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={!!draft.skipHealthCheck}
+            onChange={(e) => onChange({ ...draft, skipHealthCheck: e.target.checked })}
+          />
+          Skip health check
+        </label>
+      </div>
+      <HealthCheckParamsEditor
+        value={draft.healthCheckParams}
+        onChange={(healthCheckParams) => onChange({ ...draft, healthCheckParams })}
+      />
       <div className="flex items-center justify-end gap-2">
         {extraActions}
         <Button type="button" size="sm" onClick={onSubmit} disabled={submitting} className="gap-1.5">
@@ -297,6 +404,9 @@ export function ApiRegistryDialog({ trigger }) {
   const [apisCategory, setApisCategory] = useState("")
   const [pendingPage, setPendingPage] = useState(1)
   const [apisPage, setApisPage] = useState(1)
+  const [editingApi, setEditingApi] = useState(null)
+  const [editDraft, setEditDraft] = useState(null)
+  const [savingEdit, setSavingEdit] = useState(false)
   const [bulkApproving, setBulkApproving] = useState(false)
   const [bulkApproveResult, setBulkApproveResult] = useState(null)
   const [bulkEnabling, setBulkEnabling] = useState(false)
@@ -354,6 +464,66 @@ export function ApiRegistryDialog({ trigger }) {
       toast({ variant: "destructive", title: "Couldn't update API", description: err.message })
     } finally {
       setBusyId(null)
+    }
+  }
+
+  const handleEditClick = (api) => {
+    setEditingApi(api)
+    setEditDraft({ ...api })
+  }
+
+  const closeEdit = () => {
+    setEditingApi(null)
+    setEditDraft(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingApi) return
+    setSavingEdit(true)
+    try {
+      // Explicitly whitelisted rather than sending editDraft as-is - it's a
+      // full copy of the entry, including `enabled`. The PATCH route treats
+      // `enabled` as a special toggle (it resets consecutiveFailures/
+      // disabledReason as a side effect - see adminApis.js), so sending it
+      // unchanged from a plain field edit would silently overwrite
+      // disabledReason: 'health_check' with 'manual' on every save, even
+      // when the user never touched the enable/disable toggle at all.
+      const {
+        name,
+        description,
+        baseUrl,
+        path,
+        method,
+        params,
+        authType,
+        authEnvVar,
+        authKeyName,
+        category,
+        healthCheckParams,
+        minIntervalMs,
+        skipHealthCheck,
+      } = editDraft
+      await updateApi(editingApi.id, {
+        name,
+        description,
+        baseUrl,
+        path,
+        method,
+        params,
+        authType,
+        authEnvVar,
+        authKeyName,
+        category,
+        healthCheckParams,
+        minIntervalMs,
+        skipHealthCheck,
+      })
+      closeEdit()
+      load()
+    } catch (err) {
+      toast({ variant: "destructive", title: "Couldn't save changes", description: err.message })
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -434,6 +604,7 @@ export function ApiRegistryDialog({ trigger }) {
   const apisPageItems = filteredApis.slice((apisPage - 1) * PAGE_SIZE, apisPage * PAGE_SIZE)
 
   return (
+    <>
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-lg">
@@ -560,6 +731,15 @@ export function ApiRegistryDialog({ trigger }) {
                   </div>
                   <Button
                     type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 shrink-0 px-2 text-xs"
+                    onClick={() => handleEditClick(api)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    type="button"
                     variant={api.enabled ? "secondary" : "ghost"}
                     size="sm"
                     className="h-7 shrink-0 px-2 text-xs"
@@ -591,5 +771,27 @@ export function ApiRegistryDialog({ trigger }) {
         </div>
       </DialogContent>
     </Dialog>
+
+    <Dialog open={!!editingApi} onOpenChange={(next) => !next && closeEdit()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit {editingApi?.name}</DialogTitle>
+          <DialogDescription>Changes save immediately to this registered API - no separate approval step.</DialogDescription>
+        </DialogHeader>
+        {editDraft && (
+          <div className="max-h-[65vh] overflow-y-auto pr-1">
+            <ApiForm
+              draft={editDraft}
+              onChange={setEditDraft}
+              onSubmit={handleSaveEdit}
+              submitting={savingEdit}
+              submitLabel="Save"
+              mode="edit"
+            />
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+    </>
   )
 }

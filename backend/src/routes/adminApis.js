@@ -3,7 +3,21 @@ const mongoose = require('mongoose');
 const ApiRegistry = require('../models/ApiRegistry');
 const { bulkApproveEligible, bulkEnableCategory } = require('../lib/apiRegistry');
 
-const EDITABLE_FIELDS = ['name', 'description', 'baseUrl', 'path', 'method', 'params', 'authType', 'authEnvVar', 'authKeyName'];
+const EDITABLE_FIELDS = [
+  'name',
+  'description',
+  'baseUrl',
+  'path',
+  'method',
+  'params',
+  'authType',
+  'authEnvVar',
+  'authKeyName',
+  'category',
+  'healthCheckParams',
+  'minIntervalMs',
+  'skipHealthCheck'
+];
 
 function toDto(doc) {
   return {
@@ -64,6 +78,13 @@ router.post('/', async (req, res) => {
       method: req.body.method || 'GET',
       params: Array.isArray(req.body.params) ? req.body.params : [],
       authType: req.body.authType || 'none',
+      // Same shared form as editing (see ApiRegistryDialog.jsx's ApiForm)
+      // offers these too - accepted here so they don't silently get
+      // dropped when set on a brand-new manual entry instead of an edit.
+      category: req.body.category || null,
+      healthCheckParams: req.body.healthCheckParams && typeof req.body.healthCheckParams === 'object' ? req.body.healthCheckParams : null,
+      minIntervalMs: Number.isFinite(req.body.minIntervalMs) ? req.body.minIntervalMs : 350,
+      skipHealthCheck: !!req.body.skipHealthCheck,
       enabled: true,
       status: 'approved',
       proposedBy: 'user'
