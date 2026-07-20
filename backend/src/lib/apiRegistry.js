@@ -4,6 +4,44 @@ const ApiRegistry = require('../models/ApiRegistry');
 // API response from blowing up the prompt sent to Ollama afterward.
 const MAX_RESPONSE_CHARS = 8000;
 
+// Per-API last-call timestamp, in memory only - resets on restart, which is
+// fine at this scale (no Redis needed just to pace a few hundred APIs
+// nobody's hitting concurrently across processes).
+const lastCallAt = new Map();
+
+// Blocks until at least minIntervalMs has passed since the last call to
+// this specific API - the simplest way to respect a strict published rate
+// limit (Nominatim, MusicBrainz, ...) without a token-bucket/queue
+// implementation this app doesn't need at its actual call volume.
+async function waitForRateLimit(apiName, minIntervalMs) {
+  const last = lastCallAt.get(apiName);
+  const now = Date.now();
+  if (last !== undefined) {
+    const elapsed = now - last;
+    if (elapsed < minIntervalMs) {
+      await new Promise((resolve) => setTimeout(resolve, minIntervalMs - elapsed));
+    }
+  }
+  lastCallAt.set(apiName, Date.now());
+}
+
+// Retries a 429 with backoff (Retry-After header if the API sends one,
+// otherwise a simple linear backoff) instead of surfacing the rate-limit
+// error straight to the model on the first hit - most free-tier APIs here
+// are hit rarely enough that a short wait clears a transient 429 outright.
+async function fetchWithBackoff(url, options, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, options);
+    if (response.status !== 429) return response;
+    if (attempt === maxRetries) return response;
+
+    const retryAfterHeader = response.headers.get('retry-after');
+    const backoffMs = retryAfterHeader ? parseInt(retryAfterHeader, 10) * 1000 : (attempt + 1) * 1000;
+    console.warn(`[apiRegistry] 429 from ${url}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+  }
+}
+
 // Projected to just what the tool description needs - approved+enabled
 // only, so a pending/rejected/disabled entry is invisible to the model
 // entirely, not just soft-blocked at call time.
@@ -97,9 +135,11 @@ async function callRegisteredApi(apiName, params) {
     fetchOptions.body = JSON.stringify(bodyPayload);
   }
 
+  await waitForRateLimit(apiName, api.minIntervalMs);
+
   let response;
   try {
-    response = await fetch(url.toString(), fetchOptions);
+    response = await fetchWithBackoff(url.toString(), fetchOptions);
   } catch (err) {
     throw new Error(`Could not reach "${apiName}": ${err.message}`);
   }

@@ -20,10 +20,9 @@ export function Composer({
 }) {
   const [value, setValue] = useState("")
   const [files, setFiles] = useState([])
-  // Hint only, no request-shape change: the backend doesn't take a flag for
-  // this today, so toggling it doesn't change what gets sent - it's here so
-  // the control isn't a dead "Coming soon" tooltip, and to leave a clean
-  // wiring point for whenever /api/chat grows a real tool-calling loop.
+  // Forwarded to /api/chat as browsingEnabled (see onSend/useChat.js's
+  // send()) - when on, the backend nudges the model to actually use a tool
+  // this turn instead of leaving it entirely up to the model's own judgment.
   const [browsingEnabled, setBrowsingEnabled] = useState(false)
   const textareaRef = useRef(null)
   const screenShareRef = useRef(null)
@@ -38,7 +37,7 @@ export function Composer({
     // null whenever screen-share isn't active - onSend/useChat treats that
     // exactly like sending without a frame at all.
     const frame = screenShareRef.current?.captureFrame() ?? null
-    onSend(value, files, frame)
+    onSend(value, files, frame, browsingEnabled)
     setValue("")
     setFiles([])
     if (textareaRef.current) textareaRef.current.style.height = "auto"
@@ -134,6 +133,7 @@ export function Composer({
               onClick={() => setBrowsingEnabled((v) => !v)}
               className="gap-1.5 px-2 text-muted-foreground data-[active=true]:text-foreground"
               data-active={browsingEnabled}
+              title="Force a web/API lookup for this message"
             >
               <Globe className="size-3.5" />
               Browse web

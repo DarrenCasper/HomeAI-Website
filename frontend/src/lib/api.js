@@ -80,13 +80,15 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
   })
 }
 
-// POST /api/chat { message, model, conversationId?, projectId?, screenContext? } -> raw Response.
+// POST /api/chat { message, model, conversationId?, projectId?, screenContext?, browsingEnabled? } -> raw Response.
 // projectId only matters when starting a brand-new conversation (no
 // conversationId) - it tags that conversation into the project. screenContext
 // is a plain-text screen-share description (see useChat.js's send()) - the
 // backend folds it into the message it sends to the model as invisible
 // background context; it's never stored or shown, so it isn't echoed back
-// anywhere in this response.
+// anywhere in this response. browsingEnabled is the Composer's "Browse web"
+// toggle - true nudges the model to actually use a tool this turn instead
+// of leaving it entirely up to its own judgment (see routes/chat.js).
 // The backend picks one of two response shapes depending on the model (see
 // backend src/utils/modelMode.js):
 //  - stream mode: 200, Content-Type text/plain, body is raw text chunks, and
@@ -94,7 +96,7 @@ export function sendMessage({ message, model, conversationId, projectId, attachm
 //  - job mode: 200 JSON { mode: "job", jobId, status, statusUrl, conversationId }
 // Callers must branch on response.headers.get("content-type") themselves -
 // this stays unparsed so streaming callers can read response.body directly.
-export function postChat({ message, model, conversationId, projectId, screenContext }) {
+export function postChat({ message, model, conversationId, projectId, screenContext, browsingEnabled }) {
   return fetch(`${BASE}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -105,6 +107,7 @@ export function postChat({ message, model, conversationId, projectId, screenCont
       ...(conversationId ? { conversationId } : {}),
       ...(projectId ? { projectId } : {}),
       ...(screenContext ? { screenContext } : {}),
+      ...(browsingEnabled ? { browsingEnabled: true } : {}),
     }),
   })
 }

@@ -180,7 +180,7 @@ export function useChat(conversationId, projectId) {
   )
 
   const send = useCallback(
-    async (text, attachments = [], frame = null) => {
+    async (text, attachments = [], frame = null, browsingEnabled = false) => {
       const trimmed = text.trim()
       if ((!trimmed && attachments.length === 0) || pending) return
 
@@ -240,7 +240,7 @@ export function useChat(conversationId, projectId) {
       }
 
       try {
-        const response = await postChat({ message: trimmed, model, conversationId, projectId, screenContext })
+        const response = await postChat({ message: trimmed, model, conversationId, projectId, screenContext, browsingEnabled })
         const contentType = response.headers.get("content-type") || ""
 
         if (contentType.includes("application/json")) {

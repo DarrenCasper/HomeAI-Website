@@ -51,7 +51,14 @@ const apiRegistrySchema = new Schema({
   // 'health_check' vs 'manual' lets the UI (and the re-enable toggle) tell
   // an automatic disable - something actually broke - apart from a
   // deliberate human one, which need different responses.
-  disabledReason: { type: String, enum: [null, 'manual', 'health_check'], default: null }
+  disabledReason: { type: String, enum: [null, 'manual', 'health_check'], default: null },
+
+  // Minimum gap enforced between calls to this API (see lib/apiRegistry.js's
+  // waitForRateLimit) - 350ms default is a conservative general-purpose
+  // pace; entries with a known strict published limit (Nominatim,
+  // MusicBrainz, CourtListener, ...) get a stricter override, see
+  // scripts/setRateLimitOverrides.js.
+  minIntervalMs: { type: Number, default: 350 }
 });
 
 module.exports = mongoose.model('ApiRegistry', apiRegistrySchema);
