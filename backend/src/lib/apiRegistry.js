@@ -276,6 +276,29 @@ async function bulkApproveEligible() {
   return { approvedCount: approvedNames.length, approvedNames, skippedCount };
 }
 
+// Re-enables every disabled, approved entry in one category in a single
+// action - the recovery counterpart to a whole category going down
+// together (a shared upstream outage, a health check catching several
+// related entries at once) without clicking each row's toggle individually.
+// Same reset as the manual single-entry re-enable in adminApis.js's PATCH
+// handler: consecutiveFailures back to 0, disabledReason cleared, so an
+// entry that's still actually broken doesn't just get silently re-disabled
+// on the very next scheduled health check.
+async function bulkEnableCategory(category) {
+  const disabled = await ApiRegistry.find({ status: 'approved', category, enabled: false });
+
+  const enabledNames = [];
+  for (const entry of disabled) {
+    entry.enabled = true;
+    entry.consecutiveFailures = 0;
+    entry.disabledReason = null;
+    await entry.save();
+    enabledNames.push(entry.name);
+  }
+
+  return { enabledCount: enabledNames.length, enabledNames };
+}
+
 module.exports = {
   getEnabledApis,
   getCategorySummary,
@@ -284,5 +307,6 @@ module.exports = {
   buildCategorySelectorTool,
   buildApiToolForCategory,
   isBulkApproveEligible,
-  bulkApproveEligible
+  bulkApproveEligible,
+  bulkEnableCategory
 };

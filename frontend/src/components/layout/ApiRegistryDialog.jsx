@@ -4,6 +4,7 @@ import { Loader2, Plus, X } from "lucide-react"
 import {
   approveApi,
   bulkApproveEligibleApis,
+  bulkEnableCategoryApis,
   createApi,
   deleteApi,
   getApis,
@@ -298,6 +299,8 @@ export function ApiRegistryDialog({ trigger }) {
   const [apisPage, setApisPage] = useState(1)
   const [bulkApproving, setBulkApproving] = useState(false)
   const [bulkApproveResult, setBulkApproveResult] = useState(null)
+  const [bulkEnabling, setBulkEnabling] = useState(false)
+  const [bulkEnableResult, setBulkEnableResult] = useState(null)
 
   const load = () => {
     setLoading(true)
@@ -321,6 +324,9 @@ export function ApiRegistryDialog({ trigger }) {
   // an in-place edit (e.g. toggling enabled) doesn't bounce you back.
   useEffect(() => setPendingPage(1), [pending.length, pendingCategory])
   useEffect(() => setApisPage(1), [apis.length, apisCategory])
+  // Clear a stale result from a previous category rather than leaving it
+  // displayed against whatever category you've since switched to.
+  useEffect(() => setBulkEnableResult(null), [apisCategory])
 
   const handleAdd = async () => {
     if (!newDraft.name.trim() || !newDraft.description.trim() || !newDraft.baseUrl.trim() || !newDraft.path.trim()) {
@@ -398,6 +404,21 @@ export function ApiRegistryDialog({ trigger }) {
       toast({ variant: "destructive", title: "Bulk approve failed", description: err.message })
     } finally {
       setBulkApproving(false)
+    }
+  }
+
+  const handleBulkEnableCategory = async () => {
+    if (!apisCategory) return
+    setBulkEnabling(true)
+    setBulkEnableResult(null)
+    try {
+      const result = await bulkEnableCategoryApis(apisCategory)
+      setBulkEnableResult(result)
+      load()
+    } catch (err) {
+      toast({ variant: "destructive", title: "Bulk enable failed", description: err.message })
+    } finally {
+      setBulkEnabling(false)
     }
   }
 
@@ -492,8 +513,28 @@ export function ApiRegistryDialog({ trigger }) {
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Registered APIs ({filteredApis.length})
               </p>
-              <CategoryFilter categories={apisCategories} value={apisCategory} onChange={setApisCategory} />
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1.5 px-2 text-xs"
+                  onClick={handleBulkEnableCategory}
+                  disabled={!apisCategory || bulkEnabling}
+                  title={apisCategory ? `Re-enable every disabled entry in "${apisCategory}"` : "Pick a category first"}
+                >
+                  {bulkEnabling && <Loader2 className="size-3.5 animate-spin" />}
+                  Enable All in Category
+                </Button>
+                <CategoryFilter categories={apisCategories} value={apisCategory} onChange={setApisCategory} />
+              </div>
             </div>
+            {bulkEnableResult && (
+              <p className="text-[11px] font-medium text-foreground">
+                Re-enabled {bulkEnableResult.enabledCount} entr{bulkEnableResult.enabledCount === 1 ? "y" : "ies"} in
+                "{apisCategory}".
+              </p>
+            )}
             {loading && Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-md" />)}
             {!loading && apis.length === 0 && (
               <p className="px-1 py-2 text-center text-xs text-muted-foreground">No APIs registered yet</p>

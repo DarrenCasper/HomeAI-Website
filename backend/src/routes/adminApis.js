@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const ApiRegistry = require('../models/ApiRegistry');
-const { bulkApproveEligible } = require('../lib/apiRegistry');
+const { bulkApproveEligible, bulkEnableCategory } = require('../lib/apiRegistry');
 
 const EDITABLE_FIELDS = ['name', 'description', 'baseUrl', 'path', 'method', 'params', 'authType', 'authEnvVar', 'authKeyName'];
 
@@ -110,6 +110,22 @@ router.post('/bulk-approve-eligible', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[adminApis] bulk-approve-eligible failed:', err.message);
+    res.status(503).json({ error: 'API registry unavailable' });
+  }
+});
+
+// Re-enables every disabled, approved entry in one category in a single
+// action - see lib/apiRegistry.js's bulkEnableCategory. Distinct from the
+// per-entry PATCH toggle below, which only ever touches one row at a time.
+router.post('/bulk-enable-category', async (req, res) => {
+  const category = typeof req.body?.category === 'string' ? req.body.category.trim() : '';
+  if (!category) return res.status(400).json({ error: 'category is required' });
+
+  try {
+    const result = await bulkEnableCategory(category);
+    res.json(result);
+  } catch (err) {
+    console.error('[adminApis] bulk-enable-category failed:', err.message);
     res.status(503).json({ error: 'API registry unavailable' });
   }
 });

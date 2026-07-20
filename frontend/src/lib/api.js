@@ -293,3 +293,11 @@ export function deleteApi(id) {
 export function bulkApproveEligibleApis() {
   return request("/admin/apis/bulk-approve-eligible", { method: "POST" })
 }
+
+// POST /api/admin/apis/bulk-enable-category { category } -> { enabledCount, enabledNames }
+export function bulkEnableCategoryApis(category) {
+  return request("/admin/apis/bulk-enable-category", {
+    method: "POST",
+    body: JSON.stringify({ category }),
+  })
+}
