@@ -39,6 +39,7 @@ function toDto(doc) {
     importNotes: doc.importNotes,
     healthCheckParams: doc.healthCheckParams,
     skipHealthCheck: doc.skipHealthCheck,
+    minIntervalMs: doc.minIntervalMs,
     lastCheckedAt: doc.lastCheckedAt,
     lastCheckOk: doc.lastCheckOk,
     consecutiveFailures: doc.consecutiveFailures,
