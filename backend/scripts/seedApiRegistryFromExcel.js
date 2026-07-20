@@ -11,14 +11,17 @@
 // Expected columns on every non-"Summary" sheet (header row 1):
 //   Category, Service, Endpoint / Call Name, Base URL, Path, Method,
 //   Auth Type, Auth Notes, Key Params, Free Tier / Rate Limit,
-//   Reliability Notes, Description, Docs URL
+//   Reliability Notes, Description, Docs URL, Min Interval (ms)
+// "Min Interval (ms)" is optional - a missing column, blank cell, or
+// non-numeric value all fall back to the schema's 350ms default rather
+// than failing the row.
 require('dotenv').config();
 const path = require('path');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
 const ApiRegistry = require('../src/models/ApiRegistry');
 
-const CATALOG_PATH = path.join(__dirname, '../data/api_catalog.xlsx');
+const CATALOG_PATH = path.join(__dirname, '../data/api_catalog_fix.xlsx');
 
 function slugify(text) {
   return String(text || '')
@@ -44,6 +47,13 @@ function mapAuthType(raw) {
 function isDeadOrDeprecated(service, reliabilityNotes) {
   const text = `${service} ${reliabilityNotes}`.toUpperCase();
   return text.includes('DEAD') || text.includes('DEPRECATED');
+}
+
+// Falls back to the schema's own default (350) only when the column is
+// missing/blank/non-numeric - never for a genuinely-parsed value, even 0.
+function parseMinIntervalMs(raw) {
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : 350;
 }
 
 // Auth Notes is folded in alongside the three columns named in the spec -
@@ -125,6 +135,7 @@ async function main() {
         params: [],
         authType: mapAuthType(row['Auth Type']),
         category: String(row['Category'] || '').trim() || null,
+        minIntervalMs: parseMinIntervalMs(row['Min Interval (ms)']),
         importNotes: buildImportNotes({
           authNotes: row['Auth Notes'],
           keyParams: row['Key Params'],

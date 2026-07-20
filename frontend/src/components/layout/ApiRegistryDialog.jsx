@@ -4,6 +4,7 @@ import { Loader2, Plus, X } from "lucide-react"
 import {
   approveApi,
   bulkApproveEligibleApis,
+  bulkDeleteApis,
   bulkEnableCategoryApis,
   createApi,
   deleteApi,
@@ -411,6 +412,7 @@ export function ApiRegistryDialog({ trigger }) {
   const [bulkApproveResult, setBulkApproveResult] = useState(null)
   const [bulkEnabling, setBulkEnabling] = useState(false)
   const [bulkEnableResult, setBulkEnableResult] = useState(null)
+  const [bulkDeleting, setBulkDeleting] = useState(false)
 
   const load = () => {
     setLoading(true)
@@ -574,6 +576,24 @@ export function ApiRegistryDialog({ trigger }) {
       toast({ variant: "destructive", title: "Bulk approve failed", description: err.message })
     } finally {
       setBulkApproving(false)
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    const confirmed = window.confirm(
+      `Delete ALL ${apis.length + pending.length} registry entries (registered and pending)? This cannot be undone.`
+    )
+    if (!confirmed) return
+
+    setBulkDeleting(true)
+    try {
+      const result = await bulkDeleteApis()
+      toast({ title: "Registry cleared", description: `Deleted ${result.deletedCount} entries.` })
+      load()
+    } catch (err) {
+      toast({ variant: "destructive", title: "Bulk delete failed", description: err.message })
+    } finally {
+      setBulkDeleting(false)
     }
   }
 
@@ -768,6 +788,27 @@ export function ApiRegistryDialog({ trigger }) {
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Add API</p>
             <ApiForm draft={newDraft} onChange={setNewDraft} onSubmit={handleAdd} submitting={addingNew} submitLabel="Add" />
           </div>
+
+          {(apis.length > 0 || pending.length > 0) && (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-destructive/40 p-3">
+              <p className="text-xs font-medium uppercase tracking-wider text-destructive">Danger zone</p>
+              <p className="text-[11px] text-muted-foreground">
+                Permanently deletes every registered and pending entry - no undo. Useful for clearing a bad bulk
+                import wholesale.
+              </p>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="w-fit gap-1.5"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting && <Loader2 className="size-3.5 animate-spin" />}
+                Remove All
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

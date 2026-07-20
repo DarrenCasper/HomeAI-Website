@@ -219,6 +219,20 @@ router.post('/:id/reject', async (req, res) => {
   }
 });
 
+// Wipes the entire registry (approved, pending, and rejected alike) - the
+// frontend's confirm() step is the only guard, there's no undo. Meant for
+// clearing a bad bulk import wholesale rather than reviewing/rejecting
+// hundreds of entries by hand.
+router.delete('/bulk', async (req, res) => {
+  try {
+    const result = await ApiRegistry.deleteMany({});
+    res.json({ deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error('[adminApis] bulk delete failed:', err.message);
+    res.status(503).json({ error: 'API registry unavailable' });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'Not found' });
 

@@ -1,4 +1,5 @@
 const ApiRegistry = require('../models/ApiRegistry');
+const { getSecretValue } = require('./apiSecrets');
 
 // Same cap as browsing-agent's /fetch (MAX_CHARS) - keeps a runaway/huge
 // API response from blowing up the prompt sent to Ollama afterward.
@@ -99,13 +100,16 @@ function buildUrl(api, params, queryParamDefs, pathParamDefs) {
   return url;
 }
 
-function applyAuth(api, url, headers) {
+// Async because the key can now live in the database (see lib/apiSecrets.js)
+// instead of only ever being a Coolify-set env var - callRegisteredApi()
+// below awaits this.
+async function applyAuth(api, url, headers) {
   if (api.authType === 'none') return;
 
   if (!api.authEnvVar) {
     throw new Error(`API "${api.name}" is misconfigured: authType is "${api.authType}" but no authEnvVar is set`);
   }
-  const key = process.env[api.authEnvVar];
+  const key = await getSecretValue(api.authEnvVar);
   if (!key) {
     throw new Error(`API key not configured: set ${api.authEnvVar} to use "${api.name}"`);
   }
@@ -157,7 +161,7 @@ async function callRegisteredApi(apiName, params) {
 
   const url = buildUrl(api, safeParams, queryParamDefs, pathParamDefs);
   const headers = {};
-  applyAuth(api, url, headers);
+  await applyAuth(api, url, headers);
 
   const fetchOptions = { method, headers };
   if (method === 'POST') {

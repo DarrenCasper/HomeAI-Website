@@ -301,3 +301,22 @@ export function bulkEnableCategoryApis(category) {
     body: JSON.stringify({ category }),
   })
 }
+
+// DELETE /api/admin/apis/bulk -> { deletedCount } - wipes the entire registry
+export function bulkDeleteApis() {
+  return request("/admin/apis/bulk", { method: "DELETE" })
+}
+
+// GET /api/admin/secrets -> [{ envVarName, isSet, source }] - status only,
+// the actual value is never sent back once saved.
+export function getReferencedSecrets() {
+  return request("/admin/secrets")
+}
+
+// POST /api/admin/secrets { envVarName, value } -> { envVarName, saved }
+export function setSecret(envVarName, value) {
+  return request("/admin/secrets", {
+    method: "POST",
+    body: JSON.stringify({ envVarName, value }),
+  })
+}

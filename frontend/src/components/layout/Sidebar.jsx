@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { BarChart3, FileText, Folder, MessageSquare, Plug, Plus, Sparkles } from "lucide-react"
+import { BarChart3, FileText, Folder, Key, MessageSquare, Plug, Plus, Sparkles } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { useConversations } from "@/context/ConversationsContext"
@@ -11,6 +11,7 @@ import { ProjectMenu } from "@/components/layout/ProjectMenu"
 import { ConversationMenu } from "@/components/layout/ConversationMenu"
 import { DocumentsDialog } from "@/components/layout/DocumentsDialog"
 import { ApiRegistryDialog } from "@/components/layout/ApiRegistryDialog"
+import { ApiSecretsDialog } from "@/components/layout/ApiSecretsDialog"
 import { UserMenu } from "@/components/layout/UserMenu"
 
 const navLinkClasses = ({ isActive }) =>
@@ -133,6 +134,14 @@ export function SidebarContent({ onNavigate }) {
             <button type="button" className={navLinkClasses({ isActive: false })}>
               <Plug className="size-3.5 shrink-0 text-muted-foreground" />
               External APIs
+            </button>
+          }
+        />
+        <ApiSecretsDialog
+          trigger={
+            <button type="button" className={navLinkClasses({ isActive: false })}>
+              <Key className="size-3.5 shrink-0 text-muted-foreground" />
+              API Secrets
             </button>
           }
         />
