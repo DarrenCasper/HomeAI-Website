@@ -21,7 +21,7 @@ const XLSX = require('xlsx');
 const mongoose = require('mongoose');
 const ApiRegistry = require('../src/models/ApiRegistry');
 
-const CATALOG_PATH = path.join(__dirname, '../data/api_catalog_fix.xlsx');
+const CATALOG_PATH = path.join(__dirname, '../data/Api_catalog_fix.xlsx');
 
 function slugify(text) {
   return String(text || '')
