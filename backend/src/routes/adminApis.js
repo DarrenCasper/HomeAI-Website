@@ -37,6 +37,7 @@ function toDto(doc) {
     createdAt: doc.createdAt,
     category: doc.category,
     importNotes: doc.importNotes,
+    paramsParseStatus: doc.paramsParseStatus,
     healthCheckParams: doc.healthCheckParams,
     skipHealthCheck: doc.skipHealthCheck,
     minIntervalMs: doc.minIntervalMs,

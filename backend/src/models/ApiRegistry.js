@@ -58,7 +58,16 @@ const apiRegistrySchema = new Schema({
   // pace; entries with a known strict published limit (Nominatim,
   // MusicBrainz, CourtListener, ...) get a stricter override, see
   // scripts/setRateLimitOverrides.js.
-  minIntervalMs: { type: Number, default: 350 }
+  minIntervalMs: { type: Number, default: 350 },
+
+  // Set by scripts/seedApiRegistryFromExcel.js's parseParamsFromText so a
+  // reviewer can tell WHY params is empty for an imported entry: 'none'
+  // (the spreadsheet said "(none)" - genuinely correct) vs 'unmatched'
+  // (the free text didn't match a recognizable shape - needs a human to
+  // fill it in) vs 'extracted' (auto-filled, still worth a glance before
+  // approving). null for anything not produced by that importer (manual
+  // entries, AI proposals, or an entry a human has already edited).
+  paramsParseStatus: { type: String, enum: [null, 'extracted', 'unmatched', 'none'], default: null }
 });
 
 module.exports = mongoose.model('ApiRegistry', apiRegistrySchema);

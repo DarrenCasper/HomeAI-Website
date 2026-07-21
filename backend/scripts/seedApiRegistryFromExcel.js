@@ -2,11 +2,17 @@
 // entries for a human to review. Run manually (see Coolify deploy notes):
 //   node scripts/seedApiRegistryFromExcel.js
 //
-// Every row lands as status: 'pending', proposedBy: 'import', params: [] -
-// the spreadsheet's params are free text, not the structured objects the
-// schema needs, so a human has to translate them before an entry is safe
-// to actually call. Upserts by the generated name, so re-running this
-// after fixing a spreadsheet typo is safe and idempotent.
+// Every row lands as status: 'pending', proposedBy: 'import'. params is
+// best-effort auto-extracted from the free-text Key Params column (see
+// parseParamsFromText) where the text cleanly matches a recognizable
+// shape, and left as [] otherwise for a human to fill in - either way,
+// still pending, so nothing is ever treated as call-ready without review.
+// Upserts by the generated name, so re-running this after fixing a
+// spreadsheet typo is safe and idempotent - critically, it never
+// overwrites params on an entry that already has any (see the
+// hasExistingParams check in the main loop), so a manual correction
+// through the Edit UI (or a previous run's auto-extraction) survives a
+// re-run untouched.
 //
 // Expected columns on every non-"Summary" sheet (header row 1):
 //   Category, Service, Endpoint / Call Name, Base URL, Path, Method,
@@ -56,6 +62,53 @@ function parseMinIntervalMs(raw) {
   return Number.isFinite(parsed) ? parsed : 350;
 }
 
+// Best-effort structured-params extraction from the Key Params column, e.g.
+// "movie_id (path, required)" -> [{name:'movie_id', in:'path', required:true, ...}].
+// Deliberately conservative: any text that doesn't cleanly match a
+// "name(s) (location[, required/optional])[ - description]" shape returns
+// [] rather than guessing - false negatives (still needing a human to fill
+// params in by hand, same as today) are far cheaper than false positives
+// (a wrong param silently registered as if it were verified).
+//
+// Note on the trailing-description split: this looks for " - " AFTER the
+// closing paren of the location qualifier specifically, not just the first
+// " - " anywhere in the string - some cells put a dash INSIDE the
+// parenthetical itself (e.g. "(path - winter/spring/summer/fall)"), and a
+// naive whole-string split on the first " - " would cut the qualifier in
+// half and make the paren-match fail entirely.
+function parseParamsFromText(text) {
+  if (!text || /^\(none\)$/i.test(text.trim())) return [];
+
+  const parenMatch = text.match(/^(.*?)\(([^)]*)\)(.*)$/);
+  if (!parenMatch) return []; // no recognizable (location) segment - don't guess, leave empty
+
+  const namesPart = parenMatch[1].trim();
+  const parenContent = parenMatch[2].toLowerCase();
+  const trailingDesc = parenMatch[3].replace(/^\s*-\s*/, '').trim() || null;
+
+  const names = namesPart.split(',').map((n) => n.trim()).filter(Boolean);
+  if (names.length === 0) return [];
+
+  let paramIn = null;
+  if (parenContent.includes('path')) paramIn = 'path';
+  else if (parenContent.includes('query')) paramIn = 'query';
+  else if (parenContent.includes('body')) paramIn = 'body';
+  if (!paramIn) return []; // no recognizable location keyword - don't guess, leave empty for human review
+
+  const required = parenContent.includes('required')
+    ? true
+    : parenContent.includes('optional')
+      ? false
+      : names.length === 1; // single named param with no explicit keyword - lean toward required, since most single-param entries in this catalog are the primary required input
+
+  return names.map((name) => ({
+    name,
+    in: paramIn,
+    required,
+    description: names.length === 1 && trailingDesc ? trailingDesc : 'Imported from spreadsheet - verify this description'
+  }));
+}
+
 // Auth Notes is folded in alongside the three columns named in the spec -
 // "Authorization: Bearer <read access token>"-style detail is exactly the
 // "nuanced free-text auth description" instruction elsewhere in this
@@ -90,6 +143,10 @@ async function main() {
   let imported = 0;
   let skippedDeadOrDeprecated = 0;
   let skippedInsecureUrl = 0;
+  let paramsExtracted = 0;
+  let paramsNone = 0;
+  let paramsUnmatched = 0;
+  let paramsSkippedExisting = 0;
   const collisions = [];
 
   for (const sheetName of dataSheets) {
@@ -132,7 +189,6 @@ async function main() {
         baseUrl,
         path: path_,
         method,
-        params: [],
         authType: mapAuthType(row['Auth Type']),
         category: String(row['Category'] || '').trim() || null,
         minIntervalMs: parseMinIntervalMs(row['Min Interval (ms)']),
@@ -147,6 +203,37 @@ async function main() {
         proposedBy: 'import'
       };
 
+      // Critical safety check: never overwrite params someone already
+      // filled in - by hand through the Edit UI, or by a previous run of
+      // this same parser. Only touch the field at all when there's
+      // nothing there yet to lose.
+      const existing = await ApiRegistry.findOne({ name }, 'params').lean();
+      const hasExistingParams = Boolean(existing?.params?.length);
+
+      if (hasExistingParams) {
+        paramsSkippedExisting++;
+      } else {
+        const keyParamsText = String(row['Key Params'] || '').trim();
+        const parsedParams = parseParamsFromText(keyParamsText);
+        entry.params = parsedParams;
+
+        // Recorded on the document (not just logged) so a reviewer looking
+        // at one pending entry later can tell WHY params is empty - "the
+        // spreadsheet said none" reads very differently from "the parser
+        // gave up, please fill this in" - see ApiRegistry.js's
+        // paramsParseStatus field.
+        if (parsedParams.length > 0) {
+          entry.paramsParseStatus = 'extracted';
+          paramsExtracted++;
+        } else if (!keyParamsText || /^\(none\)$/i.test(keyParamsText)) {
+          entry.paramsParseStatus = 'none';
+          paramsNone++;
+        } else {
+          entry.paramsParseStatus = 'unmatched';
+          paramsUnmatched++;
+        }
+      }
+
       await ApiRegistry.updateOne({ name }, { $set: entry }, { upsert: true, setDefaultsOnInsert: true });
       imported++;
     }
@@ -155,6 +242,11 @@ async function main() {
   console.log(
     `[import] done - imported ${imported} as pending, skipped ${skippedDeadOrDeprecated} (dead/deprecated), ` +
       `skipped ${skippedInsecureUrl} (insecure http baseUrl)`
+  );
+  console.log(
+    `[import] params: ${paramsExtracted} auto-extracted, ${paramsNone} genuinely none ("(none)" in the ` +
+      `spreadsheet), ${paramsUnmatched} left empty (text didn't match a recognizable pattern - worth a human ` +
+      `glance), ${paramsSkippedExisting} left untouched (already had params defined)`
   );
   if (collisions.length) {
     console.log(`[import] ${collisions.length} name collision(s) got a numeric suffix - worth a look:`);

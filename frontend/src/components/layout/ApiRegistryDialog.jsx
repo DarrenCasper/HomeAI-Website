@@ -58,6 +58,28 @@ function HealthStatus({ api }) {
   )
 }
 
+// Set only by scripts/seedApiRegistryFromExcel.js (see paramsParseStatus on
+// the model) - tells a reviewer WHY params is empty (or not) for an
+// imported entry, so an empty array doesn't read as "nobody's looked at
+// this" when it's actually "the spreadsheet correctly said none". Absent
+// entirely for manual/AI-proposed entries, so nothing renders for those.
+const PARAMS_PARSE_STATUS = {
+  extracted: { dot: "bg-emerald-500", label: "Auto-extracted from spreadsheet - verify before approving" },
+  none: { dot: "bg-muted-foreground/40", label: "Spreadsheet listed no params for this endpoint" },
+  unmatched: { dot: "bg-amber-500", label: "Couldn't auto-parse the spreadsheet's param text - fill in manually" },
+}
+
+function ParamsParseStatus({ status }) {
+  const info = PARAMS_PARSE_STATUS[status]
+  if (!info) return null
+  return (
+    <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+      <span className={`size-1.5 shrink-0 rounded-full ${info.dot}`} aria-hidden="true" />
+      {info.label}
+    </p>
+  )
+}
+
 const PAGE_SIZE = 15
 
 // Compact page-number set: first, last, current, and one on each side of
@@ -326,6 +348,7 @@ function ApiForm({ draft, onChange, onSubmit, submitting, submitLabel, extraActi
         <option value="GET">GET</option>
         <option value="POST">POST</option>
       </select>
+      <ParamsParseStatus status={draft.paramsParseStatus} />
       <ParamsEditor params={draft.params || []} onChange={(params) => onChange({ ...draft, params })} />
       <div className="flex items-center gap-1.5">
         <select
