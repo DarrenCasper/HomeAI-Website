@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const mongoose = require('mongoose');
 const ApiRegistry = require('../models/ApiRegistry');
-const { bulkApproveEligible, bulkEnableCategory } = require('../lib/apiRegistry');
+const { bulkApproveEligible, bulkEnableCategory, isSecureOrInternalUrl } = require('../lib/apiRegistry');
 
 const EDITABLE_FIELDS = [
   'name',
@@ -64,7 +64,9 @@ router.post('/', async (req, res) => {
 
   if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name is required' });
   if (typeof description !== 'string' || !description.trim()) return res.status(400).json({ error: 'description is required' });
-  if (typeof baseUrl !== 'string' || !baseUrl.startsWith('https://')) return res.status(400).json({ error: 'baseUrl must start with https://' });
+  if (typeof baseUrl !== 'string' || !isSecureOrInternalUrl(baseUrl)) {
+    return res.status(400).json({ error: 'baseUrl must be https://, or http:// to an internal Docker-network destination' });
+  }
   if (typeof path !== 'string' || !path.trim()) return res.status(400).json({ error: 'path is required' });
 
   try {
@@ -123,10 +125,10 @@ router.get('/pending', async (req, res) => {
   }
 });
 
-// Approves every pending entry that needs neither auth setup nor a path
-// param filled in - see lib/apiRegistry.js's isBulkApproveEligible. Returns
-// names (not just a count) so the frontend can show exactly what happened
-// rather than a silent "done".
+// Approves every pending entry that needs no auth, or whose secret is
+// already configured - see lib/apiRegistry.js's isBulkApproveEligible.
+// Returns names (not just a count) so the frontend can show exactly what
+// happened rather than a silent "done".
 router.post('/bulk-approve-eligible', async (req, res) => {
   try {
     const result = await bulkApproveEligible();
@@ -171,8 +173,8 @@ router.patch('/:id', async (req, res) => {
       updates.disabledReason = 'manual';
     }
   }
-  if (updates.baseUrl !== undefined && !String(updates.baseUrl).startsWith('https://')) {
-    return res.status(400).json({ error: 'baseUrl must start with https://' });
+  if (updates.baseUrl !== undefined && !isSecureOrInternalUrl(String(updates.baseUrl))) {
+    return res.status(400).json({ error: 'baseUrl must be https://, or http:// to an internal Docker-network destination' });
   }
 
   try {
@@ -192,8 +194,8 @@ router.post('/:id/approve', async (req, res) => {
   if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json({ error: 'Not found' });
 
   const updates = { ...pickEditableFields(req.body), status: 'approved' };
-  if (updates.baseUrl !== undefined && !String(updates.baseUrl).startsWith('https://')) {
-    return res.status(400).json({ error: 'baseUrl must start with https://' });
+  if (updates.baseUrl !== undefined && !isSecureOrInternalUrl(String(updates.baseUrl))) {
+    return res.status(400).json({ error: 'baseUrl must be https://, or http:// to an internal Docker-network destination' });
   }
 
   try {

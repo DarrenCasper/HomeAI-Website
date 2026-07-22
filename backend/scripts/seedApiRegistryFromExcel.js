@@ -1,4 +1,4 @@
-// Bulk-imports backend/data/api_catalog.xlsx into ApiRegistry as pending
+// Bulk-imports backend/data/api_all.xlsx into ApiRegistry as pending
 // entries for a human to review. Run manually (see Coolify deploy notes):
 //   node scripts/seedApiRegistryFromExcel.js
 //
@@ -26,8 +26,9 @@ const path = require('path');
 const XLSX = require('xlsx');
 const mongoose = require('mongoose');
 const ApiRegistry = require('../src/models/ApiRegistry');
+const { parseParamsFromText, isSecureOrInternalUrl } = require('../src/lib/apiRegistry');
 
-const CATALOG_PATH = path.join(__dirname, '../data/Api_catalog_fix.xlsx');
+const CATALOG_PATH = path.join(__dirname, '../data/api_all.xlsx');
 
 function slugify(text) {
   return String(text || '')
@@ -60,53 +61,6 @@ function isDeadOrDeprecated(service, reliabilityNotes) {
 function parseMinIntervalMs(raw) {
   const parsed = parseInt(raw, 10);
   return Number.isFinite(parsed) ? parsed : 350;
-}
-
-// Best-effort structured-params extraction from the Key Params column, e.g.
-// "movie_id (path, required)" -> [{name:'movie_id', in:'path', required:true, ...}].
-// Deliberately conservative: any text that doesn't cleanly match a
-// "name(s) (location[, required/optional])[ - description]" shape returns
-// [] rather than guessing - false negatives (still needing a human to fill
-// params in by hand, same as today) are far cheaper than false positives
-// (a wrong param silently registered as if it were verified).
-//
-// Note on the trailing-description split: this looks for " - " AFTER the
-// closing paren of the location qualifier specifically, not just the first
-// " - " anywhere in the string - some cells put a dash INSIDE the
-// parenthetical itself (e.g. "(path - winter/spring/summer/fall)"), and a
-// naive whole-string split on the first " - " would cut the qualifier in
-// half and make the paren-match fail entirely.
-function parseParamsFromText(text) {
-  if (!text || /^\(none\)$/i.test(text.trim())) return [];
-
-  const parenMatch = text.match(/^(.*?)\(([^)]*)\)(.*)$/);
-  if (!parenMatch) return []; // no recognizable (location) segment - don't guess, leave empty
-
-  const namesPart = parenMatch[1].trim();
-  const parenContent = parenMatch[2].toLowerCase();
-  const trailingDesc = parenMatch[3].replace(/^\s*-\s*/, '').trim() || null;
-
-  const names = namesPart.split(',').map((n) => n.trim()).filter(Boolean);
-  if (names.length === 0) return [];
-
-  let paramIn = null;
-  if (parenContent.includes('path')) paramIn = 'path';
-  else if (parenContent.includes('query')) paramIn = 'query';
-  else if (parenContent.includes('body')) paramIn = 'body';
-  if (!paramIn) return []; // no recognizable location keyword - don't guess, leave empty for human review
-
-  const required = parenContent.includes('required')
-    ? true
-    : parenContent.includes('optional')
-      ? false
-      : names.length === 1; // single named param with no explicit keyword - lean toward required, since most single-param entries in this catalog are the primary required input
-
-  return names.map((name) => ({
-    name,
-    in: paramIn,
-    required,
-    description: names.length === 1 && trailingDesc ? trailingDesc : 'Imported from spreadsheet - verify this description'
-  }));
 }
 
 // Auth Notes is folded in alongside the three columns named in the spec -
@@ -166,9 +120,10 @@ async function main() {
       }
 
       const baseUrl = String(row['Base URL'] || '').trim();
-      if (!baseUrl.startsWith('https://')) {
-        // Same https-only invariant callRegisteredApi() and the admin
-        // routes already enforce - importing this as pending would just be
+      if (!isSecureOrInternalUrl(baseUrl)) {
+        // Same https-or-internal invariant callRegisteredApi() and the
+        // admin routes already enforce (see lib/apiRegistry.js's
+        // isSecureOrInternalUrl) - importing this as pending would just be
         // an entry nobody can ever approve, so skip it here instead.
         skippedInsecureUrl++;
         continue;

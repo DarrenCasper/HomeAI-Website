@@ -681,12 +681,14 @@ export function ApiRegistryDialog({ trigger }) {
                   Bulk Approve Eligible
                 </Button>
                 <p className="text-[11px] text-muted-foreground">
-                  Approves entries that need no API key and no ID in their path - the rest need a quick look first.
+                  Approves entries that need no API key, or whose key is already configured in API Secrets - the
+                  rest need a secret set up first.
                 </p>
                 {bulkApproveResult && (
                   <p className="text-[11px] font-medium text-foreground">
-                    Approved {bulkApproveResult.approvedCount} entries. {bulkApproveResult.skippedCount} still need
-                    auth setup or a path parameter filled in - still in the queue below.
+                    Approved {bulkApproveResult.approvedCount} entries ({bulkApproveResult.paramsExtracted} with
+                    params auto-extracted, {bulkApproveResult.paramsUnmatched} left empty for review).{" "}
+                    {bulkApproveResult.skippedCount} still need a secret configured - still in the queue below.
                   </p>
                 )}
               </div>
